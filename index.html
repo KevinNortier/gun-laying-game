@@ -10,7 +10,7 @@
   <header>
     <h1>Gun Laying</h1>
     <form id="goto-form" autocomplete="off">
-      <input id="goto-input" type="text" placeholder="Go to grid, e.g. 3846 7219" aria-label="Grid reference">
+      <input id="goto-input" type="text" placeholder="Grid, e.g. 3846 7219" aria-label="Grid reference">
       <button type="submit">Go</button>
       <button id="goto-mark" type="button" title="Place a marker at this grid">Mark</button>
       <span id="goto-error" class="error" role="status"></span>
@@ -20,16 +20,31 @@
     <button id="grid-toggle" type="button" aria-pressed="false" title="Target grid for observer corrections (T)">Target grid</button>
     <button id="marker-toggle" type="button" aria-pressed="false" title="Place and edit your own markers (M)">Markers</button>
     <button id="ft-toggle" type="button" title="Show or hide the firing tables (F)">Firing tables</button>
+    <button id="legend-toggle" type="button" aria-pressed="false" title="Map legend (L)">Legend</button>
     <div class="spacer"></div>
     <label class="toggle"><input type="checkbox" id="opt-hillshade" checked> Relief</label>
     <label class="toggle" title="Debug: show enemy positions and where rounds land (the FDC normally knows neither)"><input type="checkbox" id="opt-enemy"> Debug view</label>
     <span class="muted">Map <code id="seed"></code></span>
+    <select id="theme-select" aria-label="Map theme" title="Terrain theme for new maps">
+      <option value="">Random theme</option>
+      <option value="temperate">Temperate</option>
+      <option value="boreal">Boreal</option>
+      <option value="arid">Arid</option>
+      <option value="mountain">Mountain</option>
+    </select>
     <button id="new-map" type="button">New map</button>
   </header>
 
   <main>
     <div id="map-wrap">
       <canvas id="map" aria-label="Topographic map"></canvas>
+      <aside id="legend" class="card legend-card" hidden>
+        <div class="card-head">
+          <h2>Legend</h2>
+          <button id="legend-close" type="button" aria-label="Close">×</button>
+        </div>
+        <div id="legend-body"></div>
+      </aside>
       <aside id="info" class="card" hidden>
         <div class="card-head">
           <h2 id="info-title"></h2>
@@ -199,11 +214,13 @@
     <span><span class="muted">Elev</span> <span id="st-elev">—</span></span>
     <span><span class="muted">Scale</span> <span id="st-scale">—</span></span>
     <span class="spacer"></span>
-    <span class="muted hint">Drag to pan · wheel / double-click to zoom · R range arm · T target grid · M markers · F firing tables · S skip</span>
+    <span class="muted hint">Drag to pan · wheel / double-click to zoom · R range arm · T target grid · M markers · L legend · F firing tables · S skip</span>
   </footer>
 
   <script src="js/noise.js"></script>
+  <script src="js/themes.js"></script>
   <script src="js/terrain.js"></script>
+  <script src="js/infrastructure.js"></script>
   <script src="js/mgrs.js"></script>
   <script src="js/geo.js"></script>
   <script src="js/weapons.js"></script>
@@ -219,6 +236,7 @@
   <script src="js/mission.js"></script>
   <script src="js/missionlayer.js"></script>
   <script src="js/missionui.js"></script>
+  <script src="js/legend.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

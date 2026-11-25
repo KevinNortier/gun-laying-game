@@ -3,7 +3,6 @@
 (function (GL) {
   'use strict';
 
-  const TREE_HEIGHT = 15; // metres of canopy that blocks line of sight
   const EYE_HEIGHT = 2;
 
   const HOSTILE_TYPES = [
@@ -20,16 +19,22 @@
     const G = GL.Geo;
     const weapon = GL.WEAPONS.m81;
     const rand = GL.mulberry32(GL.hashSeed(String(seedInput) + '/scenario'));
+    // Observers in flat forest country use a raised post (tower, tall tree).
+    const obsEye = terrain.theme.observerEye || EYE_HEIGHT;
     const h = (e, n) => terrain.height(e, n);
-    const surface = (e, n) => {
-      const z = h(e, n);
-      return terrain.isWood(e, n, z) ? z + TREE_HEIGHT : z;
-    };
+    const surface = (e, n) => terrain.surfaceHeight(e, n);
     const slope = (e, n) => {
       const d = 25;
       return Math.max(Math.abs(h(e + d, n) - h(e - d, n)), Math.abs(h(e, n + d) - h(e, n - d))) / (2 * d);
     };
-    const dry = (e, n, margin = 0) => h(e, n) > terrain.waterLevel + margin;
+    // Dry ground at least `margin` metres above any water surface.
+    const dry = (e, n, margin = 0) => h(e, n) > terrain.waterSurfaceAt(e, n) + margin;
+    // Firm, open ground for weapons and observers: no woods, marsh or buildings.
+    const C = GL.COVER;
+    const open = (e, n) => {
+      const c = terrain.coverAt(e, n);
+      return c === C.OPEN || c === C.SAND || c === C.SCRUB;
+    };
     const inBounds = (e, n, m) => e > m && n > m && e < terrain.size - m && n < terrain.size - m;
 
     // 1–2. Mortar position and azimuth of fire. The position must be dry, open (no overhead
@@ -37,21 +42,29 @@
     // ground near the mortar's own altitude (missions without height correction) and ground
     // clearly above or below it (height-difference missions). Azimuths of fire are multiples
     // of 100 mils.
+    // Positions near a road are preferred (supply), and sectors containing settlements and
+    // roads (where the enemy will be and observers describe targets by).
+    const feats = terrain.features;
     let gun = null;
     let aof = 0;
     let bestScore = -Infinity;
-    for (let i = 0, found = 0; i < 4000 && found < 25; i++) {
+    for (let i = 0, found = 0; i < 4000 && found < 30; i++) {
       const ge = 25000 + rand() * 50000;
       const gn = 25000 + rand() * 50000;
-      if (!dry(ge, gn, 3) || terrain.isWood(ge, gn) || slope(ge, gn) > 0.08) continue;
+      if (!dry(ge, gn, 3) || slope(ge, gn) > 0.08 || !open(ge, gn)) continue;
       found++;
       const gAlt = h(ge, gn);
+      const roadBonus = feats && feats.nearestRoad(ge, gn, 600) ? 8 : 0;
+      const nearSettlements = feats
+        ? feats.settlements.filter((s) => s.kind !== 'hamlet' && G.distance(ge, gn, s.e, s.n) < weapon.maxRange)
+        : [];
       const startAz = Math.floor(rand() * 64) * 100;
       for (let k = 0; k < 16; k++) {
         const az = G.normMils(startAz + k * 400);
-        let score = rand() * 2;
+        let score = rand() * 2 + roadBonus;
         let level = 0;
         let relief = 0;
+        let roads = 0;
         for (let d = 1000; d <= 5000; d += 500) {
           for (const off of [-600, -300, 0, 300, 600]) {
             const [e, n] = G.polar(ge, gn, az + off, d);
@@ -60,9 +73,15 @@
             const vi = Math.abs(h(e, n) - gAlt);
             if (vi <= 20) level++;
             else if (vi >= 40 && vi <= 150) relief++;
+            if (feats && feats.nearestRoad(e, n, 250)) roads++;
           }
         }
-        score += 2.5 * Math.min(level, 15) + 2.5 * Math.min(relief, 12);
+        let villages = 0;
+        for (const s of nearSettlements) {
+          const sd = G.distance(ge, gn, s.e, s.n);
+          if (sd > 900 && Math.abs(G.diffMils(G.azimuthMils(ge, gn, s.e, s.n), az)) <= 700) villages++;
+        }
+        score += 2.5 * Math.min(level, 15) + 2.5 * Math.min(relief, 12) + 1.5 * Math.min(roads, 10) + 9 * Math.min(villages, 3);
         if (score > bestScore) {
           bestScore = score;
           gun = { e: Math.round(ge), n: Math.round(gn) };
@@ -78,19 +97,28 @@
     for (let i = 0; i < 6; i++) {
       for (let j = 0; j < 6; j++) {
         const [e, n] = G.polar(gun.e, gun.n, aof + (i / 5 - 0.5) * 1400, 800 + (j / 5) * (weapon.maxRange - 1200));
-        if (inBounds(e, n, 100) && dry(e, n)) viewPoints.push([e, n, h(e, n) + EYE_HEIGHT]);
+        if (inBounds(e, n, 100) && dry(e, n)) viewPoints.push([e, n, h(e, n) + EYE_HEIGHT, 1]);
+      }
+    }
+    // Settlements in the sector count double: the observer should be able to see them.
+    if (feats) {
+      for (const s of feats.settlements) {
+        const d = G.distance(gun.e, gun.n, s.e, s.n);
+        if (d > 800 && d < weapon.maxRange && Math.abs(G.diffMils(G.azimuthMils(gun.e, gun.n, s.e, s.n), aof)) <= 750) {
+          viewPoints.push([s.e, s.n, h(s.e, s.n) + 10, 2]);
+        }
       }
     }
     let fo = null;
     let foScore = -Infinity;
     for (let i = 0, tried = 0; i < 300 && tried < 40; i++) {
       const [e, n] = G.polar(gun.e, gun.n, aof + (rand() * 2 - 1) * 400, 1200 + rand() * 1800);
-      if (!inBounds(e, n, 500) || !dry(e, n, 3) || terrain.isWood(e, n)) continue;
+      if (!inBounds(e, n, 500) || !dry(e, n, 3) || !open(e, n)) continue;
       tried++;
-      const eye = h(e, n) + EYE_HEIGHT;
+      const eye = h(e, n) + obsEye;
       let visible = 0;
-      for (const [pe, pn, pz] of viewPoints) {
-        if (G.lineOfSight(surface, e, n, eye, pe, pn, pz, 40)) visible++;
+      for (const [pe, pn, pz, w] of viewPoints) {
+        if (G.lineOfSight(surface, e, n, eye, pe, pn, pz, 40)) visible += w;
       }
       const score = visible * 10 + h(e, n) * 0.05 + rand() * 5;
       if (score > foScore) {
@@ -102,7 +130,7 @@
       const [e, n] = G.polar(gun.e, gun.n, aof, 2000);
       fo = { e: Math.round(e), n: Math.round(n) };
     }
-    const foEye = h(fo.e, fo.n) + EYE_HEIGHT;
+    const foEye = h(fo.e, fo.n) + obsEye;
 
     // 4. Enemy units inside the sector and range, preferably visible from the observer.
     const hostiles = [];
@@ -135,11 +163,31 @@
       });
     }
 
-    // 5. Known points for shift missions: hilltops in the sector that the observer can see;
-    // other visible ground in the sector if there are too few.
-    const foSees = (e, n) => G.lineOfSight(surface, fo.e, fo.n, foEye, e, n, h(e, n) + EYE_HEIGHT);
+    // 5. Known points for shift missions, all visible to the observer: map features (bridges,
+    // village churches), hilltops, and other ground in the sector if there are too few.
+    const foSees = (e, n, above = EYE_HEIGHT) => G.lineOfSight(surface, fo.e, fo.n, foEye, e, n, h(e, n) + above);
+    const inSector = (e, n) => {
+      const d = G.distance(gun.e, gun.n, e, n);
+      const az = G.azimuthMils(gun.e, gun.n, e, n);
+      return d >= 1000 && d <= weapon.maxRange - 600 && Math.abs(G.diffMils(az, aof)) <= 750 &&
+        G.distance(fo.e, fo.n, e, n) >= 500;
+    };
+    const featureKPs = [];
+    const f = terrain.features;
+    if (f) {
+      for (const b of f.bridges) {
+        if (inSector(b.e, b.n) && foSees(b.e, b.n, 4)) featureKPs.push({ e: Math.round(b.e), n: Math.round(b.n), r: rand(), what: 'bridge' });
+      }
+      for (const s of f.settlements) {
+        if (s.kind === 'hamlet' || !inSector(s.e, s.n)) continue;
+        // The church tower at the centre is visible from further than the houses.
+        if (foSees(s.e, s.n, 20)) featureKPs.push({ e: s.e, n: s.n, r: rand(), what: `church, ${s.name}` });
+      }
+      featureKPs.sort((a, b) => a.r - b.r);
+    }
     const B = terrain.spotBlockSize;
-    const candidates = [];
+    const candidates = featureKPs.slice(0, 2);
+    const hilltops = [];
     for (let by = Math.floor((gun.n - 6000) / B); by <= Math.floor((gun.n + 6000) / B); by++) {
       for (let bx = Math.floor((gun.e - 6000) / B); bx <= Math.floor((gun.e + 6000) / B); bx++) {
         if (bx < 0 || by < 0 || bx * B >= terrain.size || by * B >= terrain.size) continue;
@@ -149,18 +197,25 @@
           if (d < 1000 || d > weapon.maxRange - 600 || Math.abs(G.diffMils(az, aof)) > 750) continue;
           if (G.distance(fo.e, fo.n, s.e, s.n) < 500) continue; // keep clear of the observer
           if (!foSees(s.e, s.n)) continue;
-          candidates.push({ e: Math.round(s.e), n: Math.round(s.n), r: rand(), what: 'hilltop' });
+          hilltops.push({ e: Math.round(s.e), n: Math.round(s.n), r: rand(), what: 'hilltop' });
         }
       }
     }
-    candidates.sort((a, b) => a.r - b.r);
-    for (let i = 0; i < 400 && candidates.length < 2; i++) {
+    hilltops.sort((a, b) => a.r - b.r);
+    for (const hp of hilltops) {
+      if (candidates.length >= 3) break;
+      if (!candidates.some((c) => G.distance(c.e, c.n, hp.e, hp.n) < 500)) candidates.push(hp);
+    }
+    for (let i = 0; i < 3000 && candidates.length < 2; i++) {
       const [e, n] = G.polar(gun.e, gun.n, aof + (rand() * 2 - 1) * 600, 1500 + rand() * 2500);
       if (!inBounds(e, n, 300) || !dry(e, n, 2) || G.distance(fo.e, fo.n, e, n) < 500 || !foSees(e, n)) continue;
       if (candidates.some((c) => G.distance(c.e, c.n, e, n) < 800)) continue;
-      candidates.push({ e: Math.round(e), n: Math.round(n), what: 'terrain feature' });
+      let what = 'terrain feature';
+      if (feats && feats.nearestRoad(e, n, 60)) what = 'road bend';
+      else if ([0, 1600, 3200, 4800].some((az) => terrain.isWood(...G.polar(e, n, az, 50)))) what = 'wood corner';
+      candidates.push({ e: Math.round(e), n: Math.round(n), what });
     }
-    const knownPoints = candidates.slice(0, 2).map((c, i) => ({
+    const knownPoints = candidates.slice(0, 3).map((c, i) => ({
       id: `AB${String(i + 1).padStart(4, '0')}`,
       kind: 'knownPoint',
       description: `Known point (${c.what})`,

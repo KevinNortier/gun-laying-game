@@ -16,7 +16,6 @@
   const RADIO_GAP = 1.6; // seconds between radio transmissions
   const SPLASH_WARNING = 5; // "splash" is sent this many seconds before impact
   const MUZZLE_HEIGHT = 1; // metres above ground
-  const TREE_HEIGHT = 15;
   const EYE_HEIGHT = 2;
   const SMOKE_HEIGHT = 20; // a burst's smoke is visible this far above the ground
 
@@ -29,15 +28,51 @@
   const MV_SIGMA = 0.0025; // fraction of muzzle velocity
   const AZ_SIGMA = 1.5; // mils
 
+  // Target units. The description combines the unit with where it is (from the map features)
+  // or, in featureless ground, what it is doing.
   const TARGET_TYPES = [
-    { icon: 'infantry', echelon: 'section', text: 'infantry section in the open' },
-    { icon: 'infantry', echelon: 'platoon', text: 'infantry platoon in the open' },
-    { icon: 'infantry', echelon: 'platoon', text: 'infantry platoon digging in' },
-    { icon: 'mechinf', echelon: 'platoon', text: 'mechanized infantry platoon, stationary' },
-    { icon: 'recon', echelon: 'section', text: 'reconnaissance section, two vehicles' },
-    { icon: 'antitank', echelon: 'section', text: 'anti-tank team in position' },
-    { icon: 'mortar', echelon: 'section', text: 'mortar section firing' },
+    { icon: 'infantry', echelon: 'section', unit: 'infantry section', idle: ['in the open', 'in position'] },
+    { icon: 'infantry', echelon: 'platoon', unit: 'infantry platoon', idle: ['in the open', 'digging in'] },
+    { icon: 'mechinf', echelon: 'platoon', unit: 'mechanized infantry platoon', idle: [', stationary', 'refuelling'] },
+    { icon: 'recon', echelon: 'section', unit: 'reconnaissance section', idle: [', two vehicles, stationary'] },
+    { icon: 'antitank', echelon: 'section', unit: 'anti-tank team', idle: ['in position'] },
+    { icon: 'mortar', echelon: 'section', unit: 'mortar section', idle: ['firing', 'setting up'] },
   ];
+
+  // Where a point is, in the words an observer would use, from the map features nearby.
+  function describePlace(terrain, e, n, rand) {
+    const f = terrain.features;
+    const g = GL.Geo;
+    const C = GL.COVER;
+    const dirNames = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+    const near = f && f.nearestSettlement(e, n);
+    const relTo = (maxD) => {
+      if (!near || near.d > maxD) return '';
+      const dir = dirNames[Math.round(g.azimuthMils(near.s.e, near.s.n, e, n) / 800) % 8];
+      return ` ${dir} of ${near.s.name}`;
+    };
+    if (f) {
+      if (near && near.d < near.s.r * 0.8) return `in ${near.s.name}`;
+      if (near && near.d < near.s.r * 1.6) return `on the edge of ${near.s.name}`;
+      if (f.nearestBridge(e, n, 120)) return `at the bridge${relTo(3500)}`;
+      const road = f.nearestRoad(e, n, 40);
+      if (road) return `${road.road.cls === 'track' ? 'on the track' : 'on the road'}${relTo(3000)}`;
+    }
+    const h = terrain.height(e, n);
+    const cover = terrain.coverAt(e, n, h);
+    if (cover === C.WOOD) return 'in the woods';
+    if (cover === C.ROCK) return 'on the rocky slope';
+    if (cover === C.SAND) return rand() < 0.5 ? 'among the dunes' : 'in the sand';
+    if (cover === C.SCRUB) return 'in the scrub';
+    // Close to a wood line?
+    for (let k = 0; k < 8; k++) {
+      const [we, wn] = g.polar(e, n, k * 800, 50);
+      if (terrain.isWood(we, wn)) return 'at the edge of the woods';
+    }
+    const river = terrain.riverAt(e, n);
+    if (river && river.dist < 60) return terrain.theme.rivers.intermittent ? 'in the dry riverbed' : 'by the stream';
+    return null;
+  }
 
   // Mission types.
   //   location  how the observer locates the target: 'grid', 'polar' or 'shift' (from a known point)
@@ -59,7 +94,7 @@
     height: {
       label: 'Grid · height difference · fire for effect',
       location: 'grid',
-      vi: [[50, 150], [35, 200], [20, 300]],
+      vi: [[50, 150], [35, 200], [20, 300], [10, 300]],
       method: 'ffe',
       locError: [0, 12],
       digits: 5,
@@ -196,8 +231,7 @@
     // ---- target generation ----------------------------------------------------
 
     _surface(e, n) {
-      const z = this.terrain.height(e, n);
-      return this.terrain.isWood(e, n, z) ? z + TREE_HEIGHT : z;
+      return this.terrain.surfaceHeight(e, n);
     }
 
     _foSees(e, n, aboveGround) {
@@ -205,7 +239,7 @@
       const t = this.terrain;
       return G().lineOfSight(
         (x, y) => this._surface(x, y),
-        fo.e, fo.n, t.height(fo.e, fo.n) + EYE_HEIGHT,
+        fo.e, fo.n, t.height(fo.e, fo.n) + (t.theme.observerEye || EYE_HEIGHT),
         e, n, t.height(e, n) + aboveGround
       );
     }
@@ -213,6 +247,26 @@
     // Finds a visible target whose height above/below the mortar (VI) is within the mission
     // type's tiers, tried in order: the first tier is the ideal, later ones are fallbacks for
     // terrain that does not offer it.
+    // Points on map features within the mortar's reach (cached per manager).
+    _featurePoints() {
+      if (this._fpts) return this._fpts;
+      const f = this.terrain.features;
+      const { gun, weapon } = this.scenario;
+      const pts = [];
+      if (f) {
+        const R = weapon.maxRange;
+        for (const s of f.settlements) pts.push([s.e, s.n]);
+        for (const b of f.bridges) pts.push([b.e, b.n]);
+        const segs = f.roadIndex.query(gun.e - R, gun.n - R, gun.e + R, gun.n + R);
+        for (const s of segs) {
+          const len = Math.hypot(s.bx - s.ax, s.by - s.ay);
+          for (let t = 0; t < len; t += 300) pts.push([s.ax + (t / len) * (s.bx - s.ax), s.ay + (t / len) * (s.by - s.ay)]);
+        }
+      }
+      this._fpts = pts.filter(([e, n]) => G().distance(gun.e, gun.n, e, n) < weapon.maxRange);
+      return this._fpts;
+    }
+
     // `sample` proposes candidate positions; by default anywhere in the sector and in range.
     _generateTarget(viTiers, sample) {
       const { terrain, scenario } = this;
@@ -220,11 +274,20 @@
       const { gun, observer: fo, weapon } = scenario;
       const gunAlt = terrain.height(gun.e, gun.n);
       const perTier = 1200;
-      const propose = sample || (() => g.polar(
-        gun.e, gun.n,
-        scenario.azimuthOfFire + (this.rand() * 2 - 1) * 600,
-        700 + this.rand() * (weapon.maxRange - 1000)
-      ));
+      // Half the candidates are near map features (settlements, bridges, roads), where enemy
+      // units tend to be and which observers use to describe a target.
+      const featurePts = this._featurePoints();
+      const propose = sample || (() => {
+        if (featurePts.length && this.rand() < 0.5) {
+          const [fe, fn] = featurePts[Math.floor(this.rand() * featurePts.length)];
+          return [fe + (this.rand() * 2 - 1) * 80, fn + (this.rand() * 2 - 1) * 80];
+        }
+        return g.polar(
+          gun.e, gun.n,
+          scenario.azimuthOfFire + (this.rand() * 2 - 1) * 600,
+          700 + this.rand() * (weapon.maxRange - 1000)
+        );
+      });
       for (let tries = 0; tries < viTiers.length * perTier; tries++) {
         const [viMin, viMax] = viTiers[Math.floor(tries / perTier)];
         const [e, n] = propose();
@@ -233,7 +296,8 @@
         if (Math.abs(g.diffMils(az, scenario.azimuthOfFire)) > 600 || d < 700 || d > weapon.maxRange - 300) continue;
         const z = terrain.height(e, n);
         const vi = Math.abs(z - gunAlt);
-        if (z <= terrain.waterLevel + 1 || vi < viMin || vi > viMax) continue;
+        if (vi < viMin || vi > viMax || z <= terrain.waterSurfaceAt(e, n) + 1) continue;
+        if (terrain.coverAt(e, n, z) === GL.COVER.MARSH) continue;
         if (e < 500 || n < 500 || e > terrain.size - 500 || n > terrain.size - 500) continue;
         const dFo = g.distance(fo.e, fo.n, e, n);
         if (dFo < 400 || dFo > 4000) continue;
@@ -283,16 +347,27 @@
       };
 
       let kp = null;
-      let sample = null;
+      let pos = null;
       if (missionType.location === 'shift') {
         if (!sc.knownPoints.length) return fail('There are no known points on this map. Try a new map.');
-        kp = sc.knownPoints[Math.floor(this.rand() * sc.knownPoints.length)];
-        sample = () => g.polar(kp.e, kp.n, this.rand() * 6400, 200 + this.rand() * 900);
+        // Try the known points in random order until one has a suitable target near it.
+        const kps = [...sc.knownPoints].sort(() => this.rand() - 0.5);
+        for (const k of kps) {
+          pos = this._generateTarget(missionType.vi, () => g.polar(k.e, k.n, this.rand() * 6400, 200 + this.rand() * 900));
+          if (pos) {
+            kp = k;
+            break;
+          }
+        }
+      } else {
+        pos = this._generateTarget(missionType.vi);
       }
-      const pos = this._generateTarget(missionType.vi, sample);
       if (!pos) return fail('No suitable target found on this map. Try a new map.');
       this.missionCount++;
-      const type = TARGET_TYPES[Math.floor(this.rand() * TARGET_TYPES.length)];
+      const unitType = TARGET_TYPES[Math.floor(this.rand() * TARGET_TYPES.length)];
+      const place = describePlace(this.terrain, pos.e, pos.n, this.rand);
+      const tail = place || unitType.idle[Math.floor(this.rand() * unitType.idle.length)];
+      const type = { ...unitType, text: `${unitType.unit}${tail.startsWith(',') ? '' : ' '}${tail}` };
       const targetAlt = this.terrain.height(pos.e, pos.n);
       const method = missionType.method === 'ffe' ? 'fire for effect' : 'adjust fire';
       const sq = GL.MGRS.SQUARE_ID;

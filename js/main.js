@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const params = new URLSearchParams(location.search);
   let seed = params.get('seed') || '1944';
-  let terrain = GL.createTerrain(seed);
+  let terrain = GL.createTerrain(seed, params.get('theme'));
   let scenario = GL.createScenario(terrain, seed);
 
   const canvas = $('map');
@@ -52,7 +52,6 @@
     });
     missionLayer.manager = manager;
     missionUI.setManager(manager);
-    $('seed').textContent = seed;
   }
   setupScenario();
 
@@ -83,9 +82,12 @@
     const [e, n] = view.clientToWorld(lastCursor.x, lastCursor.y);
     if (e < 0 || n < 0 || e >= terrain.size || n >= terrain.size) return set('off map', '—', '—');
     const h = terrain.height(e, n);
-    let elev;
-    if (terrain.isWater(h)) elev = 'water';
-    else elev = `${Math.round(h)} m` + (terrain.isWood(e, n, h) ? ' (woods)' : '');
+    const C = GL.COVER;
+    const cover = terrain.coverAt(e, n, h);
+    const what = {
+      [C.WOOD]: 'woods', [C.MARSH]: 'marsh', [C.SAND]: 'sand', [C.SCRUB]: 'scrub', [C.ROCK]: 'rock', [C.BUILT]: 'built-up',
+    }[cover];
+    const elev = cover === C.WATER ? 'water' : `${Math.round(h)} m` + (what ? ` (${what})` : '');
     set(GL.MGRS.format(e, n, 5), GL.MGRS.format(e, n, 4, false), elev);
   }
 
@@ -371,6 +373,7 @@
       case 'r': case 'R': setTool('arm'); break;
       case 't': case 'T': setTool('grid'); break;
       case 'm': case 'M': setTool('marker'); break;
+      case 'l': case 'L': setLegend($('legend').hidden); break;
       case 'Delete': case 'Backspace':
         if (tool === 'marker' && markers.selected) markers.remove(markers.selected);
         else return;
@@ -422,19 +425,57 @@
 
   $('home').addEventListener('click', homeView);
 
-  $('new-map').addEventListener('click', () => {
+  // ---- map generation, theme and legend ----------------------------------------
+
+  function renderLegend() {
+    GL.Legend.render($('legend-body'), terrain);
+  }
+
+  function setLegend(open) {
+    $('legend').hidden = !open;
+    $('legend-toggle').setAttribute('aria-pressed', String(open));
+    if (open) {
+      showInfo(null);
+      renderLegend();
+    }
+  }
+  $('legend-toggle').addEventListener('click', () => setLegend($('legend').hidden));
+  $('legend-close').addEventListener('click', () => setLegend(false));
+
+  function showMapName() {
+    $('seed').textContent = seed;
+    $('seed').title = `${terrain.theme.label} terrain`;
+  }
+
+  // Regenerates the map (and scenario) for a seed and theme ('' = chosen by the seed).
+  function newMap(newSeed, theme) {
     const busy = manager.state === 'receiving' || manager.state === 'ready' || manager.state === 'firing';
-    if (busy && !confirm('Abandon the current mission and generate a new map?')) return;
-    seed = String(Math.floor(Math.random() * 90000) + 10000);
+    if (busy && !confirm('Abandon the current mission and generate a new map?')) return false;
+    seed = newSeed;
     params.set('seed', seed);
+    if (theme) params.set('theme', theme);
+    else params.delete('theme');
     history.replaceState(null, '', '?' + params.toString());
-    terrain = GL.createTerrain(seed);
+    terrain = GL.createTerrain(seed, theme || null);
     scenario = GL.createScenario(terrain, seed);
     setupScenario();
     showInfo(null);
     view.marker = null;
     view.setTerrain(terrain);
     homeView();
+    showMapName();
+    if (!$('legend').hidden) renderLegend();
+    return true;
+  }
+
+  $('theme-select').value = params.get('theme') || '';
+  showMapName();
+  $('new-map').addEventListener('click', () => {
+    newMap(String(Math.floor(Math.random() * 90000) + 10000), $('theme-select').value);
+  });
+  // Changing the theme regenerates the current map seed in that theme.
+  $('theme-select').addEventListener('change', (ev) => {
+    if (!newMap(seed, ev.target.value)) ev.target.value = params.get('theme') || '';
   });
 
   // Exposed for debugging in the browser console.

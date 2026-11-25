@@ -105,19 +105,40 @@
     const e0 = tx * tileM;
     const nTop = (ty + 1) * tileM;
 
-    // Heights with a 1-sample border (for hillshade gradients).
+    // Heights with a 1-sample border (for hillshade gradients), and height above the water
+    // surface (negative = under water) for shorelines.
     const W = N + 3;
     const H = new Float32Array(W * W);
+    const D = new Float32Array(W * W);
     for (let j = 0; j < W; j++) {
       const n = nTop - (j - 1) * step;
-      for (let i = 0; i < W; i++) H[j * W + i] = terrain.height(e0 + (i - 1) * step, n);
+      for (let i = 0; i < W; i++) {
+        const e = e0 + (i - 1) * step;
+        const h = terrain.height(e, n);
+        H[j * W + i] = h;
+        D[j * W + i] = h - terrain.waterSurfaceAt(e, n);
+      }
     }
+
+    const theme = terrain.theme;
+    const C = GL.COVER;
+    const fill = [];
+    fill[C.OPEN] = theme.ground;
+    fill[C.WOOD] = theme.wood ? theme.wood.color : theme.ground;
+    fill[C.MARSH] = [234, 241, 234];
+    fill[C.SAND] = [238, 222, 182];
+    fill[C.SCRUB] = theme.ground;
+    fill[C.ROCK] = [224, 220, 212];
+    fill[C.BUILT] = [222, 206, 198];
+    fill[C.WATER] = theme.ground;
 
     const P = N + 1;
     const base = new ImageData(P, P);
     const water = new ImageData(P, P);
     const bd = base.data;
     const wd = water.data;
+    const masks = {}; // pattern cover -> alpha mask ImageData
+    const maskFor = (c) => masks[c] || (masks[c] = new ImageData(P, P));
     const wl = terrain.waterLevel;
     const exag = 1.6;
     let hasWater = false;
@@ -127,20 +148,25 @@
         const k = (j + 1) * W + (i + 1);
         const h = H[k];
         const p = (j * P + i) * 4;
-        if (h < wl) {
+        const dzx = (H[k + 1] - H[k - 1]) / (2 * step);
+        const dzn = (H[k - W] - H[k + W]) / (2 * step);
+        const cover = D[k] < 0 ? C.WATER : terrain.coverAt(e0 + i * step, n, h, Math.sqrt(dzx * dzx + dzn * dzn));
+        if (cover === C.WATER) {
           wd[p] = COLORS.water[0];
           wd[p + 1] = COLORS.water[1];
           wd[p + 2] = COLORS.water[2];
           wd[p + 3] = 255;
           hasWater = true;
+        } else if (cover === C.MARSH || cover === C.SAND || cover === C.SCRUB || cover === C.ROCK) {
+          maskFor(cover).data[p + 3] = 255;
         }
-        const col = h >= wl && terrain.isWood(e0 + i * step, n, h) ? COLORS.wood : COLORS.land;
+        const col = fill[cover];
         let f = 1;
         if (options.hillshade) {
           // Light from the north-west, 45 degrees up.
-          const dzx = ((H[k + 1] - H[k - 1]) / (2 * step)) * exag;
-          const dzn = ((H[k - W] - H[k + W]) / (2 * step)) * exag;
-          const shade = (0.5 * dzx - 0.5 * dzn + 0.7071) / Math.sqrt(dzx * dzx + dzn * dzn + 1);
+          const sx = dzx * exag;
+          const sn = dzn * exag;
+          const shade = (0.5 * sx - 0.5 * sn + 0.7071) / Math.sqrt(sx * sx + sn * sn + 1);
           f = clamp(1 + 0.55 * (shade - 0.7071), 0.72, 1.06);
         }
         bd[p] = col[0] * f;
@@ -157,10 +183,27 @@
     const sctx = sc.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     // Pixel i is centred on sample i, so shift by half a sample.
+    const blit = (target) => target.drawImage(sc, 0, 0, P, P, -SAMPLE / 2, -SAMPLE / 2, P * SAMPLE, P * SAMPLE);
     sctx.putImageData(base, 0, 0);
-    ctx.drawImage(sc, 0, 0, P, P, -SAMPLE / 2, -SAMPLE / 2, P * SAMPLE, P * SAMPLE);
+    blit(ctx);
 
-    // Contours (not under water).
+    // Pattern symbols (marsh tufts, sand stipple, scrub, rock hatching) masked to their areas.
+    const patterns = getPatterns(dpr);
+    const layer = getScratchTile();
+    const lctx = layer.getContext('2d');
+    for (const [cover, mask] of Object.entries(masks)) {
+      lctx.globalCompositeOperation = 'source-over';
+      lctx.clearRect(0, 0, TILE, TILE);
+      lctx.fillStyle = lctx.createPattern(patterns[cover], 'repeat');
+      lctx.fillRect(0, 0, TILE, TILE);
+      lctx.globalCompositeOperation = 'destination-in';
+      sctx.putImageData(mask, 0, 0);
+      blit(lctx);
+      lctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(layer, 0, 0);
+    }
+
+    // Contours (not under the main lake level).
     const spec = contourSpec(tm * dpr);
     const normal = new Path2D();
     const index = new Path2D();
@@ -178,11 +221,13 @@
     ctx.lineWidth = 1.6 * dpr;
     ctx.stroke(index);
 
+    drawRivers(ctx, terrain, e0, nTop, tileM, tm, dpr);
+
     if (hasWater) {
       sctx.putImageData(water, 0, 0);
-      ctx.drawImage(sc, 0, 0, P, P, -SAMPLE / 2, -SAMPLE / 2, P * SAMPLE, P * SAMPLE);
+      blit(ctx);
       const shore = new Path2D();
-      traceContours(H, W, 1e9, wl, wl, (L, x1, y1, x2, y2) => {
+      traceContours(D, W, 1e9, 0, 0, (L, x1, y1, x2, y2) => {
         shore.moveTo(x1, y1);
         shore.lineTo(x2, y2);
       });
@@ -190,7 +235,106 @@
       ctx.lineWidth = 1 * dpr;
       ctx.stroke(shore);
     }
+
+    if (terrain.features) terrain.features.drawTile(ctx, e0, nTop, tileM, tm, dpr);
     return canvas;
+  }
+
+  // Rivers as lines, wider downstream. Small streams are left out at small scales.
+  function drawRivers(ctx, terrain, e0, nTop, tileM, tm, dpr) {
+    const cssMpp = tm * dpr;
+    const minAcc = terrain.theme.rivers.minAcc;
+    const minShown = cssMpp > 30 ? minAcc * 30 : cssMpp > 12 ? minAcc * 6 : 0;
+    const pad = 50;
+    const segs = terrain.riverIndex.query(e0 - pad, nTop - tileM - pad, e0 + tileM + pad, nTop + pad);
+    const groups = new Map(); // width -> Path2D
+    let dry = false;
+    for (const s of segs) {
+      if (s.acc < minShown) continue;
+      dry = s.river.intermittent;
+      const w = Math.round(clamp(0.8 + 0.55 * Math.log2(s.acc / minAcc + 1), 0.8, 3.5) * 2) / 2;
+      let path = groups.get(w);
+      if (!path) groups.set(w, (path = new Path2D()));
+      path.moveTo((s.ax - e0) / tm, (nTop - s.ay) / tm);
+      path.lineTo((s.bx - e0) / tm, (nTop - s.by) / tm);
+    }
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = dry ? 'rgba(70, 120, 175, 0.85)' : '#2f7fc1';
+    if (dry) ctx.setLineDash([5 * dpr, 2 * dpr, 1 * dpr, 2 * dpr]); // intermittent: dash-dot
+    for (const [w, path] of groups) {
+      ctx.lineWidth = w * dpr;
+      ctx.stroke(path);
+    }
+    ctx.restore();
+  }
+
+  // Repeating symbol patterns for area features, in device pixels.
+  let patternCache = null;
+  function getPatterns(dpr) {
+    if (patternCache && patternCache.dpr === dpr) return patternCache.p;
+    const C = GL.COVER;
+    const make = (w, h, draw) => {
+      const c = document.createElement('canvas');
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+      const g = c.getContext('2d');
+      g.scale(dpr, dpr);
+      draw(g);
+      return c;
+    };
+    const p = {};
+    // Marsh: short horizontal lines with tufts, staggered rows.
+    p[C.MARSH] = make(32, 16, (g) => {
+      g.strokeStyle = '#2f6fb0';
+      g.lineWidth = 1;
+      for (const [x, y] of [[3, 6], [19, 14]]) {
+        g.beginPath();
+        g.moveTo(x, y);
+        g.lineTo(x + 9, y);
+        for (const dx of [2.5, 4.5, 6.5]) {
+          g.moveTo(x + dx, y);
+          g.lineTo(x + dx, y - 3);
+        }
+        g.stroke();
+      }
+    });
+    // Sand: stipple.
+    p[C.SAND] = make(16, 16, (g) => {
+      g.fillStyle = '#a8814a';
+      for (const [x, y] of [[2, 3], [10, 11], [12, 3], [5, 10], [7, 6], [14, 14]]) g.fillRect(x, y, 1, 1);
+    });
+    // Scrub: small open circles.
+    p[C.SCRUB] = make(32, 32, (g) => {
+      g.strokeStyle = '#5e8a3a';
+      g.lineWidth = 1;
+      for (const [x, y] of [[8, 8], [24, 24]]) {
+        g.beginPath();
+        g.arc(x, y, 2.5, 0, Math.PI * 2);
+        g.stroke();
+      }
+    });
+    // Rock: diagonal hatching.
+    p[C.ROCK] = make(8, 8, (g) => {
+      g.strokeStyle = 'rgba(95, 85, 75, 0.45)';
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(0, 8);
+      g.lineTo(8, 0);
+      g.stroke();
+    });
+    patternCache = { dpr, p };
+    return p;
+  }
+
+  let scratchTile = null;
+  function getScratchTile() {
+    if (!scratchTile) {
+      scratchTile = document.createElement('canvas');
+      scratchTile.width = scratchTile.height = TILE;
+    }
+    return scratchTile;
   }
 
   function niceScaleLength(maxMetres) {
@@ -426,6 +570,7 @@
       this._drawOutside();
       this._drawGrid();
       this._drawSpotHeights();
+      this._drawPlaceNames();
       for (const layer of this.layers) layer.draw(this, ctx);
       this._drawMarker();
       this._drawScaleBar();
@@ -561,6 +706,27 @@
       }
     }
 
+    _drawPlaceNames() {
+      const f = this.terrain.features;
+      if (!f) return;
+      const ctx = this.ctx;
+      const dpr = this.dpr;
+      const [e0, n1] = this.screenToWorld(0, 0);
+      const [e1, n0] = this.screenToWorld(this.canvas.width, this.canvas.height);
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (const s of f.labels(e0, n0, e1, n1, this.cssMpp)) {
+        const [x, y] = this.worldToScreen(s.e, s.n);
+        const px = s.kind === 'town' ? 15 : s.kind === 'village' ? 12 : 10;
+        ctx.font = `${s.kind === 'town' ? 700 : s.kind === 'village' ? 600 : 400} ${px * dpr}px system-ui, sans-serif`;
+        const label = s.kind === 'town' ? s.name.toUpperCase() : s.name;
+        const off = Math.max(s.r / this.mpp, 6 * dpr) + 9 * dpr;
+        GL.Symbols.haloText(ctx, label, x, y - off, '#1d1d1d', 3 * dpr);
+      }
+      ctx.restore();
+    }
+
     _drawMarker() {
       if (!this.marker) return;
       const ctx = this.ctx;
@@ -626,4 +792,6 @@
   }
 
   GL.MapView = MapView;
+  GL.mapPatterns = getPatterns;
+  GL.MAP_COLORS = COLORS;
 })((window.GL = window.GL || {}));
