@@ -12,6 +12,7 @@
 //   densityDev  % deviation from standard air density
 //   propTempDev °C deviation from standard propellant temperature (21 °C)
 //   targetHeight m, target altitude minus weapon altitude
+//   mvDev       fractional muzzle velocity deviation of this round (dispersion)
 (function (GL) {
   'use strict';
 
@@ -48,7 +49,8 @@
 
   function muzzleVelocity(weapon, charge, cond) {
     const ch = weapon.charges[charge];
-    return ch.mv * (1 + ((cond && cond.propTempDev) || 0) * weapon.propTempCoeff);
+    const c = cond || {};
+    return ch.mv * (1 + (c.propTempDev || 0) * weapon.propTempCoeff) * (1 + (c.mvDev || 0));
   }
 
   // Flies one round. Returns { range, cross, tof, maxOrd, impactAngle, impactVel } or null if

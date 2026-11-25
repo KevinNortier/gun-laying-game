@@ -1,4 +1,4 @@
-// App wiring: map view, scenario layer, mouse/touch/keyboard input, status bar, info card, header controls.
+// App wiring: map view and layers, mission manager, input, status bar, info card, header controls.
 (function (GL) {
   'use strict';
 
@@ -11,9 +11,34 @@
   const canvas = $('map');
   const view = new GL.MapView(canvas, terrain);
   const layer = new GL.ScenarioLayer();
-  layer.scenario = scenario;
-  view.layers.push(layer);
-  $('seed').textContent = seed;
+  const missionLayer = new GL.MissionLayer();
+  const arm = new GL.RangeArmTool();
+  view.layers.push(layer, missionLayer, arm);
+  layer.showEnemy = missionLayer.showEnemy = $('opt-enemy').checked;
+
+  const missionUI = new GL.MissionUI();
+  let manager = null;
+
+  function setupScenario() {
+    layer.scenario = scenario;
+    arm.pivot = { e: scenario.gun.e, n: scenario.gun.n };
+    arm.tip = null;
+    arm.locked = false;
+    if (manager) manager.destroy();
+    manager = new GL.MissionManager(terrain, scenario, {
+      onChange: () => {
+        missionUI.render();
+        view.requestRender();
+      },
+      onRadio: () => missionUI.renderRadio(),
+      onImpact: () => view.requestRender(),
+      onTick: () => missionUI.renderClock(),
+    });
+    missionLayer.manager = manager;
+    missionUI.setManager(manager);
+    $('seed').textContent = seed;
+  }
+  setupScenario();
 
   // Start looking from the guns towards the sector.
   function homeView() {
@@ -68,11 +93,9 @@
       rows.push(['Grid', GL.MGRS.format(f.e, f.n, 5)]);
       rows.push(['Altitude', `${alt} m`]);
       rows.push(['Azimuth of fire', `${GL.Geo.fmtMils(scenario.azimuthOfFire)} mils`]);
+      rows.push(['Referred deflection', String(scenario.referredDeflection)]);
       rows.push(['Sector', `L ${GL.Geo.fmtMils(scenario.sector.left)} – R ${GL.Geo.fmtMils(scenario.sector.right)}`]);
       rows.push(['Range', `${scenario.weapon.minRange}–${scenario.weapon.maxRange} m`]);
-    } else if (f === scenario.observer) {
-      rows.push(['Grid', GL.MGRS.format(f.e, f.n, 4)]);
-      rows.push(['Altitude', `${alt} m`]);
     } else {
       rows.push(['Grid', GL.MGRS.format(f.e, f.n, 4)]);
       rows.push(['Altitude', `${alt} m`]);
@@ -81,7 +104,11 @@
       }
     }
 
-    const title = f.label ? `${f.label} — ${f.description}` : f.kind === 'knownPoint' ? `${f.id} — ${f.description}` : `Enemy — ${f.description}`;
+    const title = f.label
+      ? `${f.label} — ${f.description}`
+      : f.kind === 'knownPoint'
+        ? `${f.id} — ${f.description}`
+        : `Enemy — ${f.description}`;
     $('info-title').textContent = title;
     const body = $('info-body');
     body.replaceChildren();
@@ -97,6 +124,25 @@
   }
 
   $('info-close').addEventListener('click', () => showInfo(null));
+
+  // ---- range arm tool -------------------------------------------------------
+
+  function setArm(active) {
+    arm.active = active;
+    arm.locked = false;
+    $('arm-toggle').setAttribute('aria-pressed', String(active));
+    $('arm-hint').hidden = !active;
+    canvas.classList.toggle('tool', active);
+    view.requestRender();
+  }
+
+  $('arm-toggle').addEventListener('click', () => setArm(!arm.active));
+
+  function armTo(p) {
+    const [e, n] = view.clientToWorld(p.x, p.y);
+    arm.tip = { e, n };
+    view.requestRender();
+  }
 
   // ---- pointer input (mouse drag, wheel, touch pinch, click) ---------------
 
@@ -142,6 +188,8 @@
         if (pinch.d > 0) view.zoomAtCss(now.d / pinch.d, now.m.x, now.m.y);
         pinch = now;
       }
+    } else if (arm.active) {
+      if (!arm.locked) armTo(p);
     } else {
       canvas.classList.toggle('over-feature', !!view.hitTest(p.x, p.y));
     }
@@ -154,9 +202,14 @@
     if (pointers.size === 0) canvas.classList.remove('dragging');
   }
   canvas.addEventListener('pointerup', (ev) => {
-    if (tap && pointers.size === 1 && ev.type === 'pointerup') {
+    if (tap && pointers.size === 1) {
       const p = pos(ev);
-      showInfo(view.hitTest(p.x, p.y));
+      if (arm.active) {
+        armTo(p);
+        arm.locked = !arm.locked;
+      } else {
+        showInfo(view.hitTest(p.x, p.y));
+      }
     }
     tap = null;
     endPointer(ev);
@@ -188,10 +241,19 @@
     view.zoomAtCss(ev.shiftKey ? 0.5 : 2, p.x, p.y);
   });
 
+  new ResizeObserver(() => view.resize()).observe($('map-wrap'));
+
+  // ---- firing tables ---------------------------------------------------------
+
+  const ftPanel = new GL.FiringTablePanel($('ft'), scenario.weapon);
+  $('ft-toggle').addEventListener('click', () => ftPanel.toggle());
+
   // ---- keyboard -----------------------------------------------------------
 
   document.addEventListener('keydown', (ev) => {
-    if (ev.target instanceof HTMLInputElement) return;
+    const t = ev.target;
+    if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement) return;
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     const cx = view.cssW / 2;
     const cy = view.cssH / 2;
     const step = 120;
@@ -204,16 +266,17 @@
       case 'ArrowDown': view.panByCss(0, -step); break;
       case 'Home': homeView(); break;
       case 'f': case 'F': ftPanel.toggle(); break;
+      case 'r': case 'R': setArm(!arm.active); break;
+      case 's': case 'S': manager.skip(); break;
       case 'Escape':
         if (ftPanel.visible) ftPanel.hide();
+        else if (arm.active) setArm(false);
         else showInfo(null);
         break;
       default: return;
     }
     ev.preventDefault();
   });
-
-  window.addEventListener('resize', () => view.resize());
 
   // ---- header controls ----------------------------------------------------
 
@@ -233,34 +296,34 @@
   $('opt-hillshade').addEventListener('change', (ev) => view.setOption('hillshade', ev.target.checked));
 
   $('opt-enemy').addEventListener('change', (ev) => {
-    layer.showEnemy = ev.target.checked;
+    layer.showEnemy = missionLayer.showEnemy = ev.target.checked;
     if (!layer.showEnemy && layer.selected && layer.selected.affiliation === 'hostile') showInfo(null);
     view.requestRender();
   });
 
   $('home').addEventListener('click', homeView);
 
-  const ftPanel = new GL.FiringTablePanel($('ft'), scenario.weapon);
-  $('ft-toggle').addEventListener('click', () => ftPanel.toggle());
-
   $('new-map').addEventListener('click', () => {
+    const busy = manager.state === 'receiving' || manager.state === 'ready' || manager.state === 'firing';
+    if (busy && !confirm('Abandon the current mission and generate a new map?')) return;
     seed = String(Math.floor(Math.random() * 90000) + 10000);
     params.set('seed', seed);
     history.replaceState(null, '', '?' + params.toString());
     terrain = GL.createTerrain(seed);
     scenario = GL.createScenario(terrain, seed);
-    layer.scenario = scenario;
+    setupScenario();
     showInfo(null);
     view.marker = null;
     view.setTerrain(terrain);
     homeView();
-    $('seed').textContent = seed;
   });
 
   // Exposed for debugging in the browser console.
   GL.app = {
     view,
     layer,
+    arm,
+    get manager() { return manager; },
     get terrain() { return terrain; },
     get scenario() { return scenario; },
   };

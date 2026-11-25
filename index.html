@@ -15,41 +15,91 @@
       <span id="goto-error" class="error" role="status"></span>
     </form>
     <button id="home" type="button" title="Centre on the gun position (Home)">Gun position</button>
+    <button id="arm-toggle" type="button" aria-pressed="false" title="Range arm plotting tool (R)">Range arm</button>
     <button id="ft-toggle" type="button" title="Show or hide the firing tables (F)">Firing tables</button>
     <div class="spacer"></div>
     <label class="toggle"><input type="checkbox" id="opt-hillshade" checked> Relief shading</label>
-    <label class="toggle" title="Enemy positions are normally unknown to the FDC"><input type="checkbox" id="opt-enemy" checked> Show enemy (debug)</label>
+    <label class="toggle" title="Enemy positions are normally unknown to the FDC"><input type="checkbox" id="opt-enemy"> Show enemy (debug)</label>
     <span class="muted">Map <code id="seed"></code></span>
     <button id="new-map" type="button">New map</button>
   </header>
 
   <main>
-    <canvas id="map" aria-label="Topographic map"></canvas>
-    <aside id="info" class="card" hidden>
-      <div class="card-head">
-        <h2 id="info-title"></h2>
-        <button id="info-close" type="button" aria-label="Close">×</button>
-      </div>
-      <dl id="info-body"></dl>
-      <p id="info-note" class="muted small" hidden>Debug view: the FDC would not normally know enemy positions.</p>
+    <div id="map-wrap">
+      <canvas id="map" aria-label="Topographic map"></canvas>
+      <aside id="info" class="card" hidden>
+        <div class="card-head">
+          <h2 id="info-title"></h2>
+          <button id="info-close" type="button" aria-label="Close">×</button>
+        </div>
+        <dl id="info-body"></dl>
+        <p id="info-note" class="muted small" hidden>Debug view: the FDC would not normally know enemy positions.</p>
+      </aside>
+      <section id="ft" class="drawer" hidden aria-label="Firing tables">
+        <div class="card-head">
+          <h2 class="ft-title"></h2>
+          <button class="ft-close" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="tabs" role="tablist"></div>
+        <div class="ft-meta small muted"></div>
+        <div class="table-wrap"><table class="ft-table"></table></div>
+        <details class="small">
+          <summary>Standard conditions and how to read the table</summary>
+          <ul class="ft-standard"></ul>
+          <p>Effects show what the condition does to the fall of the round: a negative value means the round falls
+            short by that many metres. To compensate, apply the opposite. Cross wind blowing left to right moves the
+            round right by the given mils. Effects scale roughly linearly; negative deviations (colder, thinner,
+            lower target) have the opposite sign.</p>
+        </details>
+      </section>
+      <p id="arm-hint" class="tool-hint" hidden>Range arm: move to aim · click to lock/unlock · zoom in to read the scales</p>
+    </div>
+
+    <aside id="sidebar">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Fire mission</h2>
+          <span id="mission-clock" class="clock">--:--</span>
+        </div>
+        <p id="mission-status" class="small"></p>
+        <div class="row">
+          <button id="btn-mission" type="button" class="primary">New mission</button>
+          <button id="btn-skip" type="button" hidden>Skip</button>
+        </div>
+        <div id="score" class="score" hidden>
+          <dl id="score-body"></dl>
+        </div>
+      </section>
+
+      <section class="panel radio">
+        <h2>Radio</h2>
+        <ol id="radio-log" aria-live="polite"></ol>
+      </section>
+
+      <section class="panel">
+        <h2>Fire command</h2>
+        <p id="laid-info" class="small muted"></p>
+        <form id="fire-form" autocomplete="off">
+          <label>Charge <select id="f-charge"></select></label>
+          <label>Deflection <input id="f-defl" type="number" inputmode="numeric" min="0" max="6399" step="1" placeholder="mils"></label>
+          <label>Elevation <input id="f-elev" type="number" inputmode="numeric" min="800" max="1511" step="1" placeholder="mils"></label>
+          <label>Rounds
+            <select id="f-rounds">
+              <option>1</option><option>2</option><option>3</option><option>4</option><option>6</option>
+            </select>
+          </label>
+          <button id="btn-fire" type="submit" class="fire" disabled>FIRE</button>
+        </form>
+        <p id="fire-msg" class="small" role="status"></p>
+        <details class="small">
+          <summary>Laying the mortar</summary>
+          <p>The mortar is laid on the azimuth of fire with the referred deflection set on the sight. To engage a
+            target on another azimuth, change the deflection: <b>left add, right subtract</b>.
+            Deflection = referred deflection + (azimuth of fire − target azimuth).</p>
+          <p>Elevation comes from the firing table for the chosen charge and the target range.</p>
+        </details>
+      </section>
     </aside>
-    <section id="ft" class="drawer" hidden aria-label="Firing tables">
-      <div class="card-head">
-        <h2 class="ft-title"></h2>
-        <button class="ft-close" type="button" aria-label="Close">×</button>
-      </div>
-      <div class="tabs" role="tablist"></div>
-      <div class="ft-meta small muted"></div>
-      <div class="table-wrap"><table class="ft-table"></table></div>
-      <details class="small">
-        <summary>Standard conditions and how to read the table</summary>
-        <ul class="ft-standard"></ul>
-        <p>Effects show what the condition does to the fall of the round: a negative value means the round falls
-          short by that many metres. To compensate, apply the opposite. Cross wind blowing left to right moves the
-          round right by the given mils. Effects scale roughly linearly; negative deviations (colder, thinner,
-          lower target) have the opposite sign.</p>
-      </details>
-    </section>
   </main>
 
   <footer>
@@ -58,7 +108,7 @@
     <span><span class="muted">Elev</span> <span id="st-elev">—</span></span>
     <span><span class="muted">Scale</span> <span id="st-scale">—</span></span>
     <span class="spacer"></span>
-    <span class="muted hint">Drag to pan · wheel / double-click to zoom · +/− and arrow keys</span>
+    <span class="muted hint">Drag to pan · wheel / double-click to zoom · R range arm · F firing tables · S skip</span>
   </footer>
 
   <script src="js/noise.js"></script>
@@ -73,6 +123,10 @@
   <script src="js/scenario.js"></script>
   <script src="js/maprenderer.js"></script>
   <script src="js/featurelayer.js"></script>
+  <script src="js/plotting.js"></script>
+  <script src="js/mission.js"></script>
+  <script src="js/missionlayer.js"></script>
+  <script src="js/missionui.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

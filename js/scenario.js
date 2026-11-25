@@ -32,43 +32,61 @@
     const dry = (e, n, margin = 0) => h(e, n) > terrain.waterLevel + margin;
     const inBounds = (e, n, m) => e > m && n > m && e < terrain.size - m && n < terrain.size - m;
 
-    // 1. Mortar position: dry, open (no overhead cover), fairly level ground.
+    // 1–2. Mortar position and azimuth of fire. The position must be dry, open (no overhead
+    // cover) and fairly level. Candidates are scored on dry land in the sector and on how much
+    // of it lies near the mortar's own altitude (so early missions need no height correction).
+    // Azimuths of fire are multiples of 100 mils.
     let gun = null;
-    for (let i = 0; i < 3000 && !gun; i++) {
-      const e = 25000 + rand() * 50000;
-      const n = 25000 + rand() * 50000;
-      if (!dry(e, n, 3) || terrain.isWood(e, n) || slope(e, n) > 0.08) continue;
-      gun = { e: Math.round(e), n: Math.round(n) };
-    }
-    if (!gun) gun = { e: 50000, n: 50000 };
-
-    // 2. Azimuth of fire: the direction with most dry land within range. Multiples of 100 mils.
-    const startAz = Math.floor(rand() * 64) * 100;
-    let bestScore = -1;
-    let aof = startAz;
-    for (let k = 0; k < 16; k++) {
-      const az = G.normMils(startAz + k * 400);
-      let score = rand() * 2;
-      for (let d = 1000; d <= 5000; d += 500) {
-        for (const off of [-600, 0, 600]) {
-          const [e, n] = G.polar(gun.e, gun.n, az + off, d);
-          if (inBounds(e, n, 500) && dry(e, n)) score++;
+    let aof = 0;
+    let bestScore = -Infinity;
+    for (let i = 0, found = 0; i < 4000 && found < 25; i++) {
+      const ge = 25000 + rand() * 50000;
+      const gn = 25000 + rand() * 50000;
+      if (!dry(ge, gn, 3) || terrain.isWood(ge, gn) || slope(ge, gn) > 0.08) continue;
+      found++;
+      const gAlt = h(ge, gn);
+      const startAz = Math.floor(rand() * 64) * 100;
+      for (let k = 0; k < 16; k++) {
+        const az = G.normMils(startAz + k * 400);
+        let score = rand() * 2;
+        for (let d = 1000; d <= 5000; d += 500) {
+          for (const off of [-600, 0, 600]) {
+            const [e, n] = G.polar(ge, gn, az + off, d);
+            if (!inBounds(e, n, 500) || !dry(e, n)) continue;
+            score++;
+            if (Math.abs(h(e, n) - gAlt) <= 25) score += 2;
+          }
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          gun = { e: Math.round(ge), n: Math.round(gn) };
+          aof = az;
         }
       }
-      if (score > bestScore) {
-        bestScore = score;
-        aof = az;
-      }
     }
+    if (!gun) gun = { e: 50000, n: 50000 };
     const sector = { left: G.normMils(aof - 800), right: G.normMils(aof + 800) };
 
-    // 3. Forward observer: high, open ground ahead of the guns.
+    // 3. Forward observer: open ground ahead of the guns with the best view over the sector.
+    const viewPoints = [];
+    for (let i = 0; i < 6; i++) {
+      for (let j = 0; j < 6; j++) {
+        const [e, n] = G.polar(gun.e, gun.n, aof + (i / 5 - 0.5) * 1400, 800 + (j / 5) * (weapon.maxRange - 1200));
+        if (inBounds(e, n, 100) && dry(e, n)) viewPoints.push([e, n, h(e, n) + EYE_HEIGHT]);
+      }
+    }
     let fo = null;
     let foScore = -Infinity;
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0, tried = 0; i < 300 && tried < 40; i++) {
       const [e, n] = G.polar(gun.e, gun.n, aof + (rand() * 2 - 1) * 400, 1200 + rand() * 1800);
       if (!inBounds(e, n, 500) || !dry(e, n, 3) || terrain.isWood(e, n)) continue;
-      const score = h(e, n) + rand() * 15;
+      tried++;
+      const eye = h(e, n) + EYE_HEIGHT;
+      let visible = 0;
+      for (const [pe, pn, pz] of viewPoints) {
+        if (G.lineOfSight(surface, e, n, eye, pe, pn, pz, 40)) visible++;
+      }
+      const score = visible * 10 + h(e, n) * 0.05 + rand() * 5;
       if (score > foScore) {
         foScore = score;
         fo = { e: Math.round(e), n: Math.round(n) };
@@ -148,6 +166,7 @@
         n: gun.n,
       },
       azimuthOfFire: aof,
+      referredDeflection: 2800, // deflection set on the sight when laid on the azimuth of fire
       sector,
       observer: {
         id: 'T31',
