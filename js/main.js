@@ -14,9 +14,17 @@
   const missionLayer = new GL.MissionLayer();
   const arm = new GL.RangeArmTool();
   const grid = new GL.TargetGridTool();
-  view.layers.push(layer, missionLayer, grid, arm);
-  let tool = null; // 'arm' | 'grid' | null: which plotting tool receives map clicks
+  const markers = new GL.MarkerLayer();
+  view.layers.push(layer, missionLayer, grid, markers, arm);
+  let tool = null; // 'arm' | 'grid' | 'marker' | null: which tool receives map clicks
   layer.showEnemy = missionLayer.showEnemy = $('opt-enemy').checked;
+
+  const markerPanel = new GL.MarkerPanel($('marker-panel'), markers, view);
+  markers.onChange = () => {
+    markerPanel.render();
+    view.requestRender();
+  };
+  markerPanel.render();
 
   const missionUI = new GL.MissionUI();
   let manager = null;
@@ -28,6 +36,7 @@
     arm.tip = null;
     arm.locked = false;
     grid.center = null;
+    markers.clear();
     if (manager) manager.destroy();
     manager = new GL.MissionManager(terrain, scenario, {
       onChange: () => {
@@ -37,6 +46,9 @@
       onRadio: () => missionUI.renderRadio(),
       onImpact: () => view.requestRender(),
       onTick: () => missionUI.renderClock(),
+      onStart: () => {
+        if (!$('marker-keep').checked) markers.clear();
+      },
     });
     missionLayer.manager = manager;
     missionUI.setManager(manager);
@@ -131,7 +143,7 @@
 
   $('info-close').addEventListener('click', () => showInfo(null));
 
-  // ---- plotting tools (range arm, target grid) ------------------------------
+  // ---- plotting tools (range arm, target grid, markers) ---------------------
 
   function setTool(next) {
     tool = tool === next ? null : next;
@@ -139,8 +151,11 @@
     grid.active = tool === 'grid';
     $('arm-toggle').setAttribute('aria-pressed', String(tool === 'arm'));
     $('grid-toggle').setAttribute('aria-pressed', String(tool === 'grid'));
+    $('marker-toggle').setAttribute('aria-pressed', String(tool === 'marker'));
     $('arm-hint').hidden = tool !== 'arm';
     $('grid-ctl').hidden = tool !== 'grid';
+    $('marker-panel').hidden = tool !== 'marker';
+    if (tool !== 'marker' && markers.selected) markers.select(null);
     canvas.classList.toggle('tool', !!tool);
     if (tool === 'grid') {
       grid.dir = $('grid-dir').value === '' ? null : Number($('grid-dir').value);
@@ -170,11 +185,43 @@
     view.requestRender();
   });
 
-  function armTo(p) {
+  $('marker-toggle').addEventListener('click', () => setTool('marker'));
+  $('arm-mark').addEventListener('click', () => {
+    if (!arm.tip) return;
+    markers.add(arm.tip.e, arm.tip.n);
+  });
+
+  // World position under a CSS-pixel point, snapped to a nearby marker or known position.
+  const SNAP_PX = 12;
+  function snapPoint(p) {
+    const cands = [
+      ...markers.markers,
+      ...scenario.knownPoints,
+      scenario.gun,
+      scenario.observer,
+    ];
+    if (view.marker) cands.push(view.marker);
+    let best = null;
+    let bestD = SNAP_PX * view.dpr;
+    for (const c of cands) {
+      const [x, y] = view.worldToScreen(c.e, c.n);
+      const d = Math.hypot(x - p.x * view.dpr, y - p.y * view.dpr);
+      if (d <= bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    if (best) return { e: best.e, n: best.n };
     const [e, n] = view.clientToWorld(p.x, p.y);
-    arm.tip = { e, n };
+    return { e, n };
+  }
+
+  function armTo(p) {
+    arm.tip = snapPoint(p);
     view.requestRender();
   }
+
+  let dragMarker = null; // marker being dragged with the marker tool
 
   // ---- pointer input (mouse drag, wheel, touch pinch, click) ---------------
 
@@ -202,6 +249,11 @@
     pointers.set(ev.pointerId, p);
     tap = pointers.size === 1 ? p : null;
     if (pointers.size === 2) pinch = pinchState();
+    dragMarker = null;
+    if (tool === 'marker' && pointers.size === 1) {
+      dragMarker = markers.hitMarker(p.x * view.dpr, p.y * view.dpr, view.dpr, view);
+      if (dragMarker) markers.select(dragMarker);
+    }
     canvas.classList.add('dragging');
   });
 
@@ -212,7 +264,12 @@
     if (prev) {
       pointers.set(ev.pointerId, p);
       if (tap && Math.hypot(p.x - tap.x, p.y - tap.y) > 5) tap = null;
-      if (pointers.size === 1) {
+      if (dragMarker && pointers.size === 1) {
+        if (!tap) {
+          const [e, n] = view.clientToWorld(p.x, p.y);
+          markers.move(dragMarker, e, n);
+        }
+      } else if (pointers.size === 1) {
         view.panByCss(p.x - prev.x, p.y - prev.y);
       } else if (pointers.size === 2 && pinch) {
         const now = pinchState();
@@ -222,6 +279,8 @@
       }
     } else if (tool === 'arm') {
       if (!arm.locked) armTo(p);
+    } else if (tool === 'marker') {
+      canvas.classList.toggle('over-feature', !!markers.hitMarker(p.x * view.dpr, p.y * view.dpr, view.dpr, view));
     } else if (!tool) {
       canvas.classList.toggle('over-feature', !!view.hitTest(p.x, p.y));
     }
@@ -240,18 +299,25 @@
         armTo(p);
         arm.locked = !arm.locked;
       } else if (tool === 'grid') {
-        const [e, n] = view.clientToWorld(p.x, p.y);
-        grid.center = { e, n };
+        grid.center = snapPoint(p);
         view.requestRender();
+      } else if (tool === 'marker') {
+        if (!dragMarker) {
+          const [e, n] = view.clientToWorld(p.x, p.y);
+          markers.add(e, n);
+          setTimeout(() => $('marker-label').select(), 0);
+        }
       } else {
         showInfo(view.hitTest(p.x, p.y));
       }
     }
     tap = null;
+    dragMarker = null;
     endPointer(ev);
   });
   canvas.addEventListener('pointercancel', (ev) => {
     tap = null;
+    dragMarker = null;
     endPointer(ev);
   });
   canvas.addEventListener('pointerleave', () => {
@@ -304,6 +370,11 @@
       case 'f': case 'F': ftPanel.toggle(); break;
       case 'r': case 'R': setTool('arm'); break;
       case 't': case 'T': setTool('grid'); break;
+      case 'm': case 'M': setTool('marker'); break;
+      case 'Delete': case 'Backspace':
+        if (tool === 'marker' && markers.selected) markers.remove(markers.selected);
+        else return;
+        break;
       case 's': case 'S': manager.skip(); break;
       case 'Escape':
         if (ftPanel.visible) ftPanel.hide();
@@ -328,6 +399,17 @@
     $('goto-error').textContent = '';
     view.marker = { e: r.e, n: r.n, label: GL.MGRS.format(r.e, r.n, r.digits, false) };
     view.centerOn(r.e, r.n, view.cssMpp > 8 ? 4 : undefined);
+  });
+
+  $('goto-mark').addEventListener('click', () => {
+    const r = GL.MGRS.parse($('goto-input').value);
+    if (r.error) {
+      $('goto-error').textContent = r.error;
+      return;
+    }
+    $('goto-error').textContent = '';
+    const m = markers.add(r.e, r.n, GL.MGRS.format(r.e, r.n, r.digits, false));
+    view.centerOn(m.e, m.n, view.cssMpp > 8 ? 4 : undefined);
   });
 
   $('opt-hillshade').addEventListener('change', (ev) => view.setOption('hillshade', ev.target.checked));
@@ -361,6 +443,7 @@
     layer,
     arm,
     grid,
+    markers,
     setTool,
     get manager() { return manager; },
     get terrain() { return terrain; },

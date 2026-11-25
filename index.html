@@ -12,15 +12,17 @@
     <form id="goto-form" autocomplete="off">
       <input id="goto-input" type="text" placeholder="Go to grid, e.g. 3846 7219" aria-label="Grid reference">
       <button type="submit">Go</button>
+      <button id="goto-mark" type="button" title="Place a marker at this grid">Mark</button>
       <span id="goto-error" class="error" role="status"></span>
     </form>
     <button id="home" type="button" title="Centre on the gun position (Home)">Gun position</button>
     <button id="arm-toggle" type="button" aria-pressed="false" title="Range arm plotting tool (R)">Range arm</button>
     <button id="grid-toggle" type="button" aria-pressed="false" title="Target grid for observer corrections (T)">Target grid</button>
+    <button id="marker-toggle" type="button" aria-pressed="false" title="Place and edit your own markers (M)">Markers</button>
     <button id="ft-toggle" type="button" title="Show or hide the firing tables (F)">Firing tables</button>
     <div class="spacer"></div>
-    <label class="toggle"><input type="checkbox" id="opt-hillshade" checked> Relief shading</label>
-    <label class="toggle" title="The FDC normally knows neither enemy positions nor where rounds land"><input type="checkbox" id="opt-enemy"> Show enemy &amp; bursts (debug)</label>
+    <label class="toggle"><input type="checkbox" id="opt-hillshade" checked> Relief</label>
+    <label class="toggle" title="Debug: show enemy positions and where rounds land (the FDC normally knows neither)"><input type="checkbox" id="opt-enemy"> Debug view</label>
     <span class="muted">Map <code id="seed"></code></span>
     <button id="new-map" type="button">New map</button>
   </header>
@@ -60,7 +62,24 @@
             <option value="observer">T31 (observer)</option>
           </select>
         </label>
-        <span>· move to aim · click to lock/unlock · zoom in to read the scales</span>
+        <span>· move to aim · click to lock/unlock · snaps to markers · zoom in to read the scales</span>
+        <button id="arm-mark" type="button" title="Place a marker at the arm's tip">Mark tip</button>
+      </form>
+      <form id="marker-panel" class="card marker-card" hidden autocomplete="off">
+        <div class="card-head">
+          <h2>Markers</h2>
+        </div>
+        <p class="small muted">Click the map to add · drag a marker to move it · click to select</p>
+        <div id="marker-editor" hidden>
+          <label class="small">Label <input id="marker-label" type="text" maxlength="16"></label>
+          <div class="small mono" id="marker-grid"></div>
+          <button id="marker-delete" type="button">Delete</button>
+        </div>
+        <ul id="marker-list"></ul>
+        <div class="row small">
+          <button id="marker-clear" type="button">Clear all</button>
+          <label class="toggle"><input type="checkbox" id="marker-keep"> Keep between missions</label>
+        </div>
       </form>
       <form id="grid-ctl" class="tool-hint" hidden autocomplete="off">
         <label>Target grid · OT direction
@@ -157,7 +176,7 @@
     <span><span class="muted">Elev</span> <span id="st-elev">—</span></span>
     <span><span class="muted">Scale</span> <span id="st-scale">—</span></span>
     <span class="spacer"></span>
-    <span class="muted hint">Drag to pan · wheel / double-click to zoom · R range arm · T target grid · F firing tables · S skip</span>
+    <span class="muted hint">Drag to pan · wheel / double-click to zoom · R range arm · T target grid · M markers · F firing tables · S skip</span>
   </footer>
 
   <script src="js/noise.js"></script>
@@ -173,6 +192,7 @@
   <script src="js/maprenderer.js"></script>
   <script src="js/featurelayer.js"></script>
   <script src="js/plotting.js"></script>
+  <script src="js/markers.js"></script>
   <script src="js/mission.js"></script>
   <script src="js/missionlayer.js"></script>
   <script src="js/missionui.js"></script>

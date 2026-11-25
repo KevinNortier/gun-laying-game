@@ -351,6 +351,7 @@
         result: null,
       };
       this.state = 'receiving';
+      if (this.listener.onStart) this.listener.onStart();
       const desc = capitalize(type.text);
       const t0 = 0.3;
       this._say(this.fo, `${this.fdc}, this is ${this.fo}, ${method}${headerExtra}, over.`, t0);
