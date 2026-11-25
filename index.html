@@ -53,7 +53,15 @@
             lower target) have the opposite sign.</p>
         </details>
       </section>
-      <p id="arm-hint" class="tool-hint" hidden>Range arm: move to aim · click to lock/unlock · zoom in to read the scales</p>
+      <form id="arm-hint" class="tool-hint" hidden autocomplete="off">
+        <label>Range arm · pivot
+          <select id="arm-pivot">
+            <option value="gun">H24 (mortar)</option>
+            <option value="observer">T31 (observer)</option>
+          </select>
+        </label>
+        <span>· move to aim · click to lock/unlock · zoom in to read the scales</span>
+      </form>
       <form id="grid-ctl" class="tool-hint" hidden autocomplete="off">
         <label>Target grid · OT direction
           <input id="grid-dir" type="number" min="0" max="6399" step="10" placeholder="mils">
@@ -127,6 +135,17 @@
             A target below the mortar (negative VI) gives a shorter corrected range.</p>
           <p>Near a charge's maximum range with a large VI the correction loses accuracy; choose a higher charge.
             Rounds that clip a hill between mortar and target burst on the hill.</p>
+        </details>
+        <details class="small">
+          <summary>Polar and shift missions (magnetic)</summary>
+          <p>In these missions the observer reads directions off a compass: they are <b>magnetic</b>. Convert them
+            with the declination diagram in the map corner before plotting or entering them in the target grid.</p>
+          <p><b>Polar:</b> "direction, distance, up/down" from the observer. Set the range arm pivot to T31, plot the
+            grid direction and distance, then measure from the mortar. "Up 40" means the target is 40 m higher
+            than the observer.</p>
+          <p><b>Shift:</b> "shift AB0001, direction, left/right, add/drop, up/down". Centre the target grid on the
+            known point, oriented to the grid direction, and count off the shift.</p>
+          <p>Later corrections use the same (magnetic) direction as their axis.</p>
         </details>
       </section>
     </aside>

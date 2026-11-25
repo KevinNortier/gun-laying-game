@@ -24,6 +24,7 @@
   function setupScenario() {
     layer.scenario = scenario;
     arm.pivot = { e: scenario.gun.e, n: scenario.gun.n };
+    $('arm-pivot').value = 'gun';
     arm.tip = null;
     arm.locked = false;
     grid.center = null;
@@ -100,7 +101,9 @@
       rows.push(['Sector', `L ${GL.Geo.fmtMils(scenario.sector.left)} – R ${GL.Geo.fmtMils(scenario.sector.right)}`]);
       rows.push(['Range', `${scenario.weapon.minRange}–${scenario.weapon.maxRange} m`]);
     } else {
-      rows.push(['Grid', GL.MGRS.format(f.e, f.n, 4)]);
+      // Own observer and known points are surveyed: 10-digit grids.
+      const precise = f === scenario.observer || f.kind === 'knownPoint';
+      rows.push(['Grid', GL.MGRS.format(f.e, f.n, precise ? 5 : 4)]);
       rows.push(['Altitude', `${alt} m`]);
       if (f.affiliation === 'hostile') {
         rows.push(['Observed', f.visibleToObserver ? 'Visible to T31' : 'Not visible to T31']);
@@ -147,6 +150,12 @@
   }
 
   $('arm-toggle').addEventListener('click', () => setTool('arm'));
+  $('arm-pivot').addEventListener('change', (ev) => {
+    const p = ev.target.value === 'observer' ? scenario.observer : scenario.gun;
+    arm.pivot = { e: p.e, n: p.n };
+    view.requestRender();
+  });
+  $('arm-hint').addEventListener('submit', (ev) => ev.preventDefault());
   $('grid-toggle').addEventListener('click', () => setTool('grid'));
   $('grid-dir').addEventListener('input', (ev) => {
     grid.dir = ev.target.value === '' ? null : Number(ev.target.value);

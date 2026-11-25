@@ -36,6 +36,80 @@
         const box = GL.Symbols.drawSymbolOnStaff(ctx, x, y, s, u, u === this.selected);
         this._hits.push({ box, feature: u });
       }
+
+      this._drawDeclination(view, ctx, sc);
+    }
+
+    // Declination diagram in the map margin, as printed on topographic maps.
+    _drawDeclination(view, ctx, sc) {
+      const decl = sc.declination || 0;
+      const dpr = view.dpr;
+      const W = view.canvas.width;
+      const H = view.canvas.height;
+      const pw = 215 * dpr;
+      const ph = 112 * dpr;
+      const x0 = W - pw - 12 * dpr;
+      const y0 = H - ph - 12 * dpr;
+      if (x0 < 220 * dpr) return; // no room next to the scale bar
+      ctx.save();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.fillRect(x0, y0, pw, ph);
+
+      const bx = x0 + 48 * dpr;
+      const by = y0 + ph - 14 * dpr;
+      const L = 72 * dpr;
+      // Drawn exaggerated when small, as on real maps ("use diagram only to obtain numerical values").
+      const shown = (decl < 0 ? -1 : 1) * Math.max(Math.abs(decl) * GL.Geo.RAD_PER_MIL, (24 * Math.PI) / 180);
+      const tipGN = [bx, by - L];
+      const tipMN = [bx + Math.sin(shown) * L, by - Math.cos(shown) * L];
+
+      ctx.strokeStyle = '#111';
+      ctx.fillStyle = '#111';
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(...tipGN);
+      ctx.moveTo(bx, by);
+      ctx.lineTo(...tipMN);
+      ctx.stroke();
+      // Half arrowhead on magnetic north.
+      const ux = Math.sin(shown);
+      const uy = -Math.cos(shown);
+      ctx.beginPath();
+      ctx.moveTo(...tipMN);
+      ctx.lineTo(tipMN[0] - ux * 12 * dpr - uy * 5 * dpr * Math.sign(decl || 1),
+        tipMN[1] - uy * 12 * dpr + ux * 5 * dpr * Math.sign(decl || 1));
+      ctx.lineTo(tipMN[0] - ux * 12 * dpr, tipMN[1] - uy * 12 * dpr);
+      ctx.closePath();
+      ctx.fill();
+      // Angle arc.
+      ctx.beginPath();
+      const a0 = -Math.PI / 2;
+      ctx.arc(bx, by, L * 0.55, Math.min(a0, a0 + shown), Math.max(a0, a0 + shown));
+      ctx.lineWidth = 1 * dpr;
+      ctx.stroke();
+
+      ctx.font = `600 ${10 * dpr}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('GN', tipGN[0], tipGN[1] - 3 * dpr);
+      ctx.fillText('MN', tipMN[0] + ux * 6 * dpr, tipMN[1] - 3 * dpr);
+
+      const abs = Math.abs(decl);
+      const dir = decl >= 0 ? 'E' : 'W';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      const tx = x0 + 96 * dpr;
+      ctx.font = `600 ${11 * dpr}px system-ui, sans-serif`;
+      ctx.fillText(`G-M angle ${abs} mils ${dir}`, tx, y0 + 12 * dpr);
+      ctx.font = `${10 * dpr}px system-ui, sans-serif`;
+      const lines = [
+        'To convert a magnetic',
+        'azimuth to a grid azimuth,',
+        `${decl >= 0 ? 'add' : 'subtract'} the G-M angle.`,
+      ];
+      lines.forEach((t, i) => ctx.fillText(t, tx, y0 + (34 + i * 14) * dpr));
+      ctx.restore();
     }
 
     _drawSector(view, ctx, sc) {

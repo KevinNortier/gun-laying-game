@@ -135,7 +135,9 @@
       });
     }
 
-    // 5. Known points: prominent hilltops in the sector, for shift missions later.
+    // 5. Known points for shift missions: hilltops in the sector that the observer can see;
+    // other visible ground in the sector if there are too few.
+    const foSees = (e, n) => G.lineOfSight(surface, fo.e, fo.n, foEye, e, n, h(e, n) + EYE_HEIGHT);
     const B = terrain.spotBlockSize;
     const candidates = [];
     for (let by = Math.floor((gun.n - 6000) / B); by <= Math.floor((gun.n + 6000) / B); by++) {
@@ -146,18 +148,29 @@
           const az = G.azimuthMils(gun.e, gun.n, s.e, s.n);
           if (d < 1000 || d > weapon.maxRange - 600 || Math.abs(G.diffMils(az, aof)) > 750) continue;
           if (G.distance(fo.e, fo.n, s.e, s.n) < 500) continue; // keep clear of the observer
-          candidates.push({ e: Math.round(s.e), n: Math.round(s.n), r: rand() });
+          if (!foSees(s.e, s.n)) continue;
+          candidates.push({ e: Math.round(s.e), n: Math.round(s.n), r: rand(), what: 'hilltop' });
         }
       }
     }
     candidates.sort((a, b) => a.r - b.r);
+    for (let i = 0; i < 400 && candidates.length < 2; i++) {
+      const [e, n] = G.polar(gun.e, gun.n, aof + (rand() * 2 - 1) * 600, 1500 + rand() * 2500);
+      if (!inBounds(e, n, 300) || !dry(e, n, 2) || G.distance(fo.e, fo.n, e, n) < 500 || !foSees(e, n)) continue;
+      if (candidates.some((c) => G.distance(c.e, c.n, e, n) < 800)) continue;
+      candidates.push({ e: Math.round(e), n: Math.round(n), what: 'terrain feature' });
+    }
     const knownPoints = candidates.slice(0, 2).map((c, i) => ({
       id: `AB${String(i + 1).padStart(4, '0')}`,
       kind: 'knownPoint',
-      description: 'Known point (hilltop)',
+      description: `Known point (${c.what})`,
       e: c.e,
       n: c.n,
     }));
+
+    // 6. Grid-magnetic angle: magnetic north east (+) or west (−) of grid north, in mils.
+    const declRand = GL.mulberry32(GL.hashSeed(String(seedInput) + '/declination'));
+    const declination = (declRand() < 0.5 ? -1 : 1) * Math.round((60 + declRand() * 140) / 5) * 5;
 
     return {
       weapon,
@@ -186,6 +199,7 @@
       },
       hostiles,
       knownPoints,
+      declination, // grid azimuth = magnetic azimuth + declination
     };
   }
 

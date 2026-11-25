@@ -40,26 +40,54 @@
   ];
 
   // Mission types.
+  //   location  how the observer locates the target: 'grid', 'polar' or 'shift' (from a known point)
   //   vi        [min, max] |height difference| tiers between target and mortar, tried in order
   //   method    'adjust' (adjust fire) or 'ffe' (fire for effect straight away)
-  //   locError  [min, max] metres of observer target location error
-  //   digits    digits per axis in the reported grid
+  //   locError  [min, max] metres of observer target location error (grid missions)
+  //   digits    digits per axis in the reported grid (grid missions)
+  //   magnetic  observer directions are magnetic (read off a compass) instead of grid
   const MISSION_TYPES = {
     level: {
-      label: 'Level ground · adjust fire',
+      label: 'Grid · level ground · adjust fire',
+      location: 'grid',
       vi: [[0, 10], [0, 20], [0, 35], [0, 60]],
       method: 'adjust',
       locError: [60, 250],
       digits: 4,
+      magnetic: false,
     },
     height: {
-      label: 'Height difference · fire for effect',
+      label: 'Grid · height difference · fire for effect',
+      location: 'grid',
       vi: [[50, 150], [35, 200], [20, 300]],
       method: 'ffe',
       locError: [0, 12],
       digits: 5,
+      magnetic: false,
+    },
+    polar: {
+      label: 'Polar · adjust fire (magnetic)',
+      location: 'polar',
+      vi: [[0, 150], [0, 300]],
+      method: 'adjust',
+      magnetic: true,
+    },
+    shift: {
+      label: 'Shift from known point · adjust fire (magnetic)',
+      location: 'shift',
+      vi: [[0, 150], [0, 300]],
+      method: 'adjust',
+      magnetic: true,
     },
   };
+
+  // Polar plot errors: compass direction and estimated distance.
+  const POLAR_DIR_SIGMA = 8; // mils
+  const POLAR_DIST_SIGMA = 0.06; // fraction of distance
+  // Shift errors: estimating lateral and range shifts from the known point.
+  const SHIFT_SIGMA = 0.08; // fraction of the shift
+  const SHIFT_BASE_SIGMA = 15; // metres
+  const UP_DOWN_MIN = 35; // vertical shifts smaller than this are not reported
 
   function gaussian(rand) {
     let u = 0;
@@ -171,17 +199,24 @@
     // Finds a visible target whose height above/below the mortar (VI) is within the mission
     // type's tiers, tried in order: the first tier is the ideal, later ones are fallbacks for
     // terrain that does not offer it.
-    _generateTarget(viTiers) {
+    // `sample` proposes candidate positions; by default anywhere in the sector and in range.
+    _generateTarget(viTiers, sample) {
       const { terrain, scenario } = this;
       const g = G();
       const { gun, observer: fo, weapon } = scenario;
       const gunAlt = terrain.height(gun.e, gun.n);
       const perTier = 1200;
+      const propose = sample || (() => g.polar(
+        gun.e, gun.n,
+        scenario.azimuthOfFire + (this.rand() * 2 - 1) * 600,
+        700 + this.rand() * (weapon.maxRange - 1000)
+      ));
       for (let tries = 0; tries < viTiers.length * perTier; tries++) {
         const [viMin, viMax] = viTiers[Math.floor(tries / perTier)];
-        const az = scenario.azimuthOfFire + (this.rand() * 2 - 1) * 600;
-        const d = 700 + this.rand() * (weapon.maxRange - 1000);
-        const [e, n] = g.polar(gun.e, gun.n, az, d);
+        const [e, n] = propose();
+        const az = g.azimuthMils(gun.e, gun.n, e, n);
+        const d = g.distance(gun.e, gun.n, e, n);
+        if (Math.abs(g.diffMils(az, scenario.azimuthOfFire)) > 600 || d < 700 || d > weapon.maxRange - 300) continue;
         const z = terrain.height(e, n);
         const vi = Math.abs(z - gunAlt);
         if (z <= terrain.waterLevel + 1 || vi < viMin || vi > viMax) continue;
@@ -199,30 +234,86 @@
     start(typeKey = 'level') {
       if (this.state !== 'idle' && this.state !== 'complete') return;
       const missionType = MISSION_TYPES[typeKey] || MISSION_TYPES.level;
-      const pos = this._generateTarget(missionType.vi);
-      if (!pos) {
-        this.radio.push({ t: this.time, from: 'SYS', text: 'No suitable target found on this map. Try a new map.' });
-        this._changed();
-        return;
-      }
       const g = G();
-      const fo = this.scenario.observer;
+      const sc = this.scenario;
+      const fo = sc.observer;
+      const decl = sc.declination || 0;
+      const fail = (text) => {
+        this.radio.push({ t: this.time, from: 'SYS', text });
+        this._changed();
+      };
+
+      let kp = null;
+      let sample = null;
+      if (missionType.location === 'shift') {
+        if (!sc.knownPoints.length) return fail('There are no known points on this map. Try a new map.');
+        kp = sc.knownPoints[Math.floor(this.rand() * sc.knownPoints.length)];
+        sample = () => g.polar(kp.e, kp.n, this.rand() * 6400, 200 + this.rand() * 900);
+      }
+      const pos = this._generateTarget(missionType.vi, sample);
+      if (!pos) return fail('No suitable target found on this map. Try a new map.');
       this.missionCount++;
       const type = TARGET_TYPES[Math.floor(this.rand() * TARGET_TYPES.length)];
-
-      // The observer's estimate of the target location: tens of metres off when plotted from the
-      // map, a few metres with a laser rangefinder.
-      const [locMin, locMax] = missionType.locError;
-      const errDist = locMin + this.rand() * (locMax - locMin);
-      const [ee, en] = g.polar(pos.e, pos.n, this.rand() * 6400, errDist);
-      const reportedGrid = GL.MGRS.format(ee, en, missionType.digits, false);
+      const targetAlt = this.terrain.height(pos.e, pos.n);
       const method = missionType.method === 'ffe' ? 'fire for effect' : 'adjust fire';
-      // OT direction as measured with a compass, to the nearest 10 mils.
-      const otDir = g.normMils(roundTo(g.azimuthMils(fo.e, fo.n, pos.e, pos.n) + gaussian(this.rand) * DIRECTION_SIGMA, 10));
+      const sq = GL.MGRS.SQUARE_ID;
+      const trueDir = g.azimuthMils(fo.e, fo.n, pos.e, pos.n); // grid
+      const toMag = (gridAz) => g.normMils(gridAz - decl);
+      const upDown = (dz) => (Math.abs(dz) >= UP_DOWN_MIN ? `${dz > 0 ? 'up' : 'down'} ${roundTo(Math.abs(dz), 5)}` : null);
+
+      // Where the observer's data puts the target, and the OT direction (grid) they will use
+      // as the axis for corrections.
+      let reported;
+      let otDir;
+      let reportedGrid = null;
+      let headerExtra = '';
+      let locText;
+      let directionSent = false;
+      if (missionType.location === 'polar') {
+        const dirMag = g.normMils(roundTo(toMag(trueDir) + gaussian(this.rand) * POLAR_DIR_SIGMA, 10));
+        otDir = g.normMils(dirMag + decl);
+        const dist = Math.max(100, roundTo(g.distance(fo.e, fo.n, pos.e, pos.n) * (1 + gaussian(this.rand) * POLAR_DIST_SIGMA), 100));
+        const [re, rn] = g.polar(fo.e, fo.n, otDir, dist);
+        reported = { e: re, n: rn };
+        const ud = upDown(targetAlt - this.terrain.height(fo.e, fo.n));
+        headerExtra = ', polar';
+        locText = `direction magnetic ${g.fmtMils(dirMag)}, distance ${dist}${ud ? `, ${ud}` : ''}`;
+        directionSent = true;
+      } else if (missionType.location === 'shift') {
+        const dirMag = g.normMils(roundTo(toMag(trueDir) + gaussian(this.rand) * DIRECTION_SIGMA, 10));
+        otDir = g.normMils(dirMag + decl);
+        const r = otDir * g.RAD_PER_MIL;
+        const de = pos.e - kp.e;
+        const dn = pos.n - kp.n;
+        const est = (v, step) => roundTo(v * (1 + gaussian(this.rand) * SHIFT_SIGMA) + gaussian(this.rand) * SHIFT_BASE_SIGMA, step);
+        const lat = est(de * Math.cos(r) - dn * Math.sin(r), 10); // + right
+        const rng = est(de * Math.sin(r) + dn * Math.cos(r), 100); // + add
+        const [e1, n1] = g.polar(kp.e, kp.n, otDir, rng);
+        const [re, rn] = g.polar(e1, n1, otDir + 1600, lat);
+        reported = { e: re, n: rn };
+        const parts = [`direction magnetic ${g.fmtMils(dirMag)}`];
+        if (lat) parts.push(`${lat > 0 ? 'right' : 'left'} ${Math.abs(lat)}`);
+        if (rng) parts.push(`${rng > 0 ? 'add' : 'drop'} ${Math.abs(rng)}`);
+        const ud = upDown(targetAlt - this.terrain.height(kp.e, kp.n));
+        if (ud) parts.push(ud);
+        headerExtra = `, shift ${kp.id}`;
+        locText = parts.join(', ');
+        directionSent = true;
+      } else {
+        // The observer's estimate of the target location: tens of metres off when plotted from
+        // the map, a few metres with a laser rangefinder.
+        const [locMin, locMax] = missionType.locError;
+        const errDist = locMin + this.rand() * (locMax - locMin);
+        const [ee, en] = g.polar(pos.e, pos.n, this.rand() * 6400, errDist);
+        reportedGrid = GL.MGRS.format(ee, en, missionType.digits, false);
+        reported = GL.MGRS.parse(reportedGrid);
+        // OT direction as measured with a compass, to the nearest 10 mils.
+        otDir = g.normMils(roundTo(trueDir + gaussian(this.rand) * DIRECTION_SIGMA, 10));
+        locText = `grid ${sq} ${reportedGrid}`;
+      }
 
       this.impacts = [];
-      const gun = this.scenario.gun;
-      const targetAlt = this.terrain.height(pos.e, pos.n);
+      const gun = sc.gun;
       this.mission = {
         number: `AB${1000 + this.missionCount}`,
         missionType: typeKey,
@@ -238,10 +329,14 @@
           e: pos.e,
           n: pos.n,
         },
+        location: missionType.location,
+        knownPoint: kp,
         reportedGrid,
-        locationError: errDist,
+        reported,
+        locationError: g.distance(reported.e, reported.n, pos.e, pos.n),
         otDir,
-        directionSent: false,
+        magnetic: missionType.magnetic,
+        directionSent,
         method: missionType.method,
         phase: missionType.method === 'ffe' ? 'ffe' : 'adjust', // adjust | ffe
         adj: { step: null, lastSpot: null, bracketed: false },
@@ -256,13 +351,12 @@
         result: null,
       };
       this.state = 'receiving';
-      const sq = GL.MGRS.SQUARE_ID;
       const desc = capitalize(type.text);
       const t0 = 0.3;
-      this._say(this.fo, `${this.fdc}, this is ${this.fo}, ${method}, over.`, t0);
-      this._say(this.fdc, `${this.fo}, this is ${this.fdc}, ${method}, out.`, t0 + RADIO_GAP);
-      this._say(this.fo, `Grid ${sq} ${reportedGrid}, over.`, t0 + 2 * RADIO_GAP);
-      this._say(this.fdc, `Grid ${sq} ${reportedGrid}, out.`, t0 + 3 * RADIO_GAP);
+      this._say(this.fo, `${this.fdc}, this is ${this.fo}, ${method}${headerExtra}, over.`, t0);
+      this._say(this.fdc, `${this.fo}, this is ${this.fdc}, ${method}${headerExtra}, out.`, t0 + RADIO_GAP);
+      this._say(this.fo, `${capitalize(locText)}, over.`, t0 + 2 * RADIO_GAP);
+      this._say(this.fdc, `${capitalize(locText)}, out.`, t0 + 3 * RADIO_GAP);
       this._say(this.fo, `${desc}, over.`, t0 + 4 * RADIO_GAP);
       this._say(this.fdc, `${desc}, target number ${this.mission.number}, out.`, t0 + 5 * RADIO_GAP);
       this._at(this.time + t0 + 5 * RADIO_GAP, () => {
@@ -454,7 +548,10 @@
 
       const parts = [];
       if (!m.directionSent) {
-        parts.push(`direction ${g.fmtMils(m.otDir)}`);
+        const decl = this.scenario.declination || 0;
+        parts.push(m.magnetic
+          ? `direction magnetic ${g.fmtMils(m.otDir - decl)}`
+          : `direction ${g.fmtMils(m.otDir)}`);
         m.directionSent = true;
       }
       const lat = roundTo(-dev.lateral, 10);

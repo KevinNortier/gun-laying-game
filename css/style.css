@@ -305,7 +305,8 @@ button.fire:not(:disabled):hover {
   white-space: nowrap;
 }
 
-#grid-ctl {
+#grid-ctl,
+#arm-hint {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -313,8 +314,18 @@ button.fire:not(:disabled):hover {
   max-width: calc(100% - 24px);
 }
 
-#grid-ctl[hidden] {
+#grid-ctl[hidden],
+#arm-hint[hidden] {
   display: none;
+}
+
+#arm-pivot {
+  margin-left: 6px;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #151815;
+  color: var(--text);
 }
 
 #grid-ctl input {
