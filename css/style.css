@@ -291,6 +291,29 @@ button.fire:not(:disabled):hover {
   white-space: nowrap;
 }
 
+#grid-ctl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: normal;
+  max-width: calc(100% - 24px);
+}
+
+#grid-ctl[hidden] {
+  display: none;
+}
+
+#grid-ctl input {
+  width: 80px;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #151815;
+  color: var(--text);
+  font: 13px ui-monospace, Consolas, monospace;
+}
+
 header button[aria-pressed='true'] {
   background: var(--accent);
   color: #1b1b12;

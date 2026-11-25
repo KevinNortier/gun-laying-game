@@ -16,10 +16,11 @@
     </form>
     <button id="home" type="button" title="Centre on the gun position (Home)">Gun position</button>
     <button id="arm-toggle" type="button" aria-pressed="false" title="Range arm plotting tool (R)">Range arm</button>
+    <button id="grid-toggle" type="button" aria-pressed="false" title="Target grid for observer corrections (T)">Target grid</button>
     <button id="ft-toggle" type="button" title="Show or hide the firing tables (F)">Firing tables</button>
     <div class="spacer"></div>
     <label class="toggle"><input type="checkbox" id="opt-hillshade" checked> Relief shading</label>
-    <label class="toggle" title="Enemy positions are normally unknown to the FDC"><input type="checkbox" id="opt-enemy"> Show enemy (debug)</label>
+    <label class="toggle" title="The FDC normally knows neither enemy positions nor where rounds land"><input type="checkbox" id="opt-enemy"> Show enemy &amp; bursts (debug)</label>
     <span class="muted">Map <code id="seed"></code></span>
     <button id="new-map" type="button">New map</button>
   </header>
@@ -53,6 +54,13 @@
         </details>
       </section>
       <p id="arm-hint" class="tool-hint" hidden>Range arm: move to aim · click to lock/unlock · zoom in to read the scales</p>
+      <form id="grid-ctl" class="tool-hint" hidden autocomplete="off">
+        <label>Target grid · OT direction
+          <input id="grid-dir" type="number" min="0" max="6399" step="10" placeholder="mils">
+        </label>
+        <span>· click map to place the centre on your last aim point</span>
+        <button id="grid-clear" type="button">Clear</button>
+      </form>
     </div>
 
     <aside id="sidebar">
@@ -98,6 +106,14 @@
             Deflection = referred deflection + (azimuth of fire − target azimuth).</p>
           <p>Elevation comes from the firing table for the chosen charge and the target range.</p>
         </details>
+        <details class="small">
+          <summary>Adjusting fire</summary>
+          <p>The observer's corrections are along their own line to the target (the OT direction), and move the
+            <b>previous aim point</b>: right/left across that line, add/drop along it.</p>
+          <p>Open the <b>Target grid</b> (T), enter the OT direction and click your previous aim point. Count the
+            correction off the grid, then measure the new point with the <b>Range arm</b> and compute new data.</p>
+          <p>Fire single rounds while adjusting. When the observer calls <b>fire for effect</b>, fire 3–4 rounds.</p>
+        </details>
       </section>
     </aside>
   </main>
@@ -108,7 +124,7 @@
     <span><span class="muted">Elev</span> <span id="st-elev">—</span></span>
     <span><span class="muted">Scale</span> <span id="st-scale">—</span></span>
     <span class="spacer"></span>
-    <span class="muted hint">Drag to pan · wheel / double-click to zoom · R range arm · F firing tables · S skip</span>
+    <span class="muted hint">Drag to pan · wheel / double-click to zoom · R range arm · T target grid · F firing tables · S skip</span>
   </footer>
 
   <script src="js/noise.js"></script>

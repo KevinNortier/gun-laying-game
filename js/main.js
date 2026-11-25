@@ -13,7 +13,9 @@
   const layer = new GL.ScenarioLayer();
   const missionLayer = new GL.MissionLayer();
   const arm = new GL.RangeArmTool();
-  view.layers.push(layer, missionLayer, arm);
+  const grid = new GL.TargetGridTool();
+  view.layers.push(layer, missionLayer, grid, arm);
+  let tool = null; // 'arm' | 'grid' | null: which plotting tool receives map clicks
   layer.showEnemy = missionLayer.showEnemy = $('opt-enemy').checked;
 
   const missionUI = new GL.MissionUI();
@@ -24,6 +26,7 @@
     arm.pivot = { e: scenario.gun.e, n: scenario.gun.n };
     arm.tip = null;
     arm.locked = false;
+    grid.center = null;
     if (manager) manager.destroy();
     manager = new GL.MissionManager(terrain, scenario, {
       onChange: () => {
@@ -125,18 +128,38 @@
 
   $('info-close').addEventListener('click', () => showInfo(null));
 
-  // ---- range arm tool -------------------------------------------------------
+  // ---- plotting tools (range arm, target grid) ------------------------------
 
-  function setArm(active) {
-    arm.active = active;
-    arm.locked = false;
-    $('arm-toggle').setAttribute('aria-pressed', String(active));
-    $('arm-hint').hidden = !active;
-    canvas.classList.toggle('tool', active);
+  function setTool(next) {
+    tool = tool === next ? null : next;
+    arm.active = tool === 'arm';
+    grid.active = tool === 'grid';
+    $('arm-toggle').setAttribute('aria-pressed', String(tool === 'arm'));
+    $('grid-toggle').setAttribute('aria-pressed', String(tool === 'grid'));
+    $('arm-hint').hidden = tool !== 'arm';
+    $('grid-ctl').hidden = tool !== 'grid';
+    canvas.classList.toggle('tool', !!tool);
+    if (tool === 'grid') {
+      grid.dir = $('grid-dir').value === '' ? null : Number($('grid-dir').value);
+      if (grid.dir === null) $('grid-dir').focus();
+    }
     view.requestRender();
   }
 
-  $('arm-toggle').addEventListener('click', () => setArm(!arm.active));
+  $('arm-toggle').addEventListener('click', () => setTool('arm'));
+  $('grid-toggle').addEventListener('click', () => setTool('grid'));
+  $('grid-dir').addEventListener('input', (ev) => {
+    grid.dir = ev.target.value === '' ? null : Number(ev.target.value);
+    view.requestRender();
+  });
+  $('grid-ctl').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    $('grid-dir').blur();
+  });
+  $('grid-clear').addEventListener('click', () => {
+    grid.center = null;
+    view.requestRender();
+  });
 
   function armTo(p) {
     const [e, n] = view.clientToWorld(p.x, p.y);
@@ -188,9 +211,9 @@
         if (pinch.d > 0) view.zoomAtCss(now.d / pinch.d, now.m.x, now.m.y);
         pinch = now;
       }
-    } else if (arm.active) {
+    } else if (tool === 'arm') {
       if (!arm.locked) armTo(p);
-    } else {
+    } else if (!tool) {
       canvas.classList.toggle('over-feature', !!view.hitTest(p.x, p.y));
     }
     updateReadout();
@@ -204,9 +227,13 @@
   canvas.addEventListener('pointerup', (ev) => {
     if (tap && pointers.size === 1) {
       const p = pos(ev);
-      if (arm.active) {
+      if (tool === 'arm') {
         armTo(p);
         arm.locked = !arm.locked;
+      } else if (tool === 'grid') {
+        const [e, n] = view.clientToWorld(p.x, p.y);
+        grid.center = { e, n };
+        view.requestRender();
       } else {
         showInfo(view.hitTest(p.x, p.y));
       }
@@ -266,11 +293,12 @@
       case 'ArrowDown': view.panByCss(0, -step); break;
       case 'Home': homeView(); break;
       case 'f': case 'F': ftPanel.toggle(); break;
-      case 'r': case 'R': setArm(!arm.active); break;
+      case 'r': case 'R': setTool('arm'); break;
+      case 't': case 'T': setTool('grid'); break;
       case 's': case 'S': manager.skip(); break;
       case 'Escape':
         if (ftPanel.visible) ftPanel.hide();
-        else if (arm.active) setArm(false);
+        else if (tool) setTool(tool);
         else showInfo(null);
         break;
       default: return;
@@ -323,6 +351,8 @@
     view,
     layer,
     arm,
+    grid,
+    setTool,
     get manager() { return manager; },
     get terrain() { return terrain; },
     get scenario() { return scenario; },

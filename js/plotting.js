@@ -34,7 +34,8 @@
     }
 
     draw(view, ctx) {
-      if (!this.active || !this.pivot || !this.tip) return;
+      // A locked arm stays on the map as a plot while other tools are used.
+      if (!(this.active || this.locked) || !this.pivot || !this.tip) return;
       const G = GL.Geo;
       const dpr = view.dpr;
       const [px, py] = view.worldToScreen(this.pivot.e, this.pivot.n);
@@ -132,5 +133,128 @@
     }
   }
 
+  // Target grid, as on a plotting board: a square grid oriented to the observer-target direction
+  // and centred on the previous aim point. Observer corrections (left/right, add/drop) are
+  // plotted by counting squares; the new aim point is then measured with the range arm.
+  const GRID_COLOR = 'rgba(0, 70, 190, 0.85)';
+  const GRID_EXTENT = 1000; // metres either side of the centre
+
+  class TargetGridTool {
+    constructor() {
+      this.active = false;
+      this.center = null; // { e, n }
+      this.dir = null; // OT direction, mils
+    }
+
+    draw(view, ctx) {
+      if (!this.center || this.dir === null || !Number.isFinite(this.dir)) return;
+      const G = GL.Geo;
+      const dpr = view.dpr;
+      const r = this.dir * G.RAD_PER_MIL;
+      const al = [Math.sin(r), Math.cos(r)]; // along the OT line (add)
+      const rt = [Math.cos(r), -Math.sin(r)]; // to the right of the OT line
+      const pt = (a, l) => view.worldToScreen(
+        this.center.e + a * al[0] + l * rt[0],
+        this.center.n + a * al[1] + l * rt[1]
+      );
+      const pxPer100 = 100 / view.mpp;
+      const X = GRID_EXTENT;
+
+      ctx.save();
+      const seg = (a0, l0, a1, l1) => {
+        const [x0, y0] = pt(a0, l0);
+        const [x1, y1] = pt(a1, l1);
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+      };
+
+      // 50 m lines when there is room.
+      if (pxPer100 >= 60 * dpr) {
+        ctx.beginPath();
+        for (let v = -X + 50; v < X; v += 100) {
+          seg(v, -X, v, X);
+          seg(-X, v, X, v);
+        }
+        ctx.setLineDash([3 * dpr, 4 * dpr]);
+        ctx.strokeStyle = 'rgba(0, 70, 190, 0.35)';
+        ctx.lineWidth = 1 * dpr;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // 100 m squares.
+      ctx.beginPath();
+      for (let v = -X; v <= X; v += 100) {
+        if (v === 0) continue;
+        seg(v, -X, v, X);
+        seg(-X, v, X, v);
+      }
+      ctx.strokeStyle = 'rgba(0, 70, 190, 0.5)';
+      ctx.lineWidth = 1 * dpr;
+      ctx.stroke();
+
+      // Axes.
+      ctx.beginPath();
+      seg(-X, 0, X + 150, 0);
+      seg(0, -X, 0, X);
+      ctx.strokeStyle = GRID_COLOR;
+      ctx.lineWidth = 2 * dpr;
+      ctx.stroke();
+
+      // 10 m ticks along the axes when zoomed in.
+      if (pxPer100 >= 150 * dpr) {
+        ctx.beginPath();
+        const t = 4 * view.mpp * dpr;
+        for (let v = -X; v <= X; v += 10) {
+          if (v % 100 === 0) continue;
+          seg(v, -t, v, t);
+          seg(-t, v, t, v);
+        }
+        ctx.lineWidth = 1 * dpr;
+        ctx.stroke();
+      }
+
+      // OT arrow and labels.
+      const [hx, hy] = pt(X + 150, 0);
+      const [bx, by] = pt(X + 100, 0);
+      const ux = (hx - bx) / Math.hypot(hx - bx, hy - by);
+      const uy = (hy - by) / Math.hypot(hx - bx, hy - by);
+      ctx.beginPath();
+      ctx.moveTo(hx, hy);
+      ctx.lineTo(hx - ux * 12 * dpr - uy * 6 * dpr, hy - uy * 12 * dpr + ux * 6 * dpr);
+      ctx.lineTo(hx - ux * 12 * dpr + uy * 6 * dpr, hy - uy * 12 * dpr - ux * 6 * dpr);
+      ctx.closePath();
+      ctx.fillStyle = GRID_COLOR;
+      ctx.fill();
+
+      ctx.font = `600 ${10 * dpr}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const [lx, ly] = pt(X + 150, 0);
+      GL.Symbols.haloText(ctx, `OT ${G.fmtMils(this.dir)}`, lx + ux * 22 * dpr, ly + uy * 22 * dpr, GRID_COLOR, 3 * dpr);
+      const every = pxPer100 >= 35 * dpr ? 100 : pxPer100 >= 14 * dpr ? 500 : 1000;
+      const off = 10 * view.mpp * dpr; // label offset from the axis, in metres
+      for (let v = every; v <= X; v += every) {
+        let [x, y] = pt(v, -off * 2.2);
+        GL.Symbols.haloText(ctx, `+${v}`, x, y, GRID_COLOR, 3 * dpr);
+        [x, y] = pt(-v, -off * 2.2);
+        GL.Symbols.haloText(ctx, `−${v}`, x, y, GRID_COLOR, 3 * dpr);
+        [x, y] = pt(off * 1.4, v);
+        GL.Symbols.haloText(ctx, `R${v}`, x, y, GRID_COLOR, 3 * dpr);
+        [x, y] = pt(off * 1.4, -v);
+        GL.Symbols.haloText(ctx, `L${v}`, x, y, GRID_COLOR, 3 * dpr);
+      }
+
+      const [cx, cy] = pt(0, 0);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 5 * dpr, 0, Math.PI * 2);
+      ctx.strokeStyle = GRID_COLOR;
+      ctx.lineWidth = 2 * dpr;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   GL.RangeArmTool = RangeArmTool;
+  GL.TargetGridTool = TargetGridTool;
 })((window.GL = window.GL || {}));

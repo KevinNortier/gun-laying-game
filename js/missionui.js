@@ -68,7 +68,11 @@
       btn.textContent = busy ? 'End mission' : 'New mission';
       if (!m) status.textContent = 'No mission. Press New mission to receive a call for fire.';
       else if (mm.state === 'receiving') status.textContent = `Receiving call for fire…`;
-      else if (mm.state === 'ready') status.textContent = `Target ${m.number}: ready to fire.`;
+      else if (mm.state === 'ready') {
+        status.textContent = m.phase === 'ffe'
+          ? `Target ${m.number}: FIRE FOR EFFECT — fire 3–4 rounds.`
+          : `Target ${m.number}: adjusting — fire one round.`;
+      }
       else if (mm.state === 'firing') status.textContent = `Target ${m.number}: rounds in flight.`;
       else status.textContent = `Target ${m.number}: mission ${m.result === 'effective' ? 'complete' : 'ended'}.`;
 
@@ -126,8 +130,10 @@
       const rows = [
         ['Result', s.effective ? 'Effect on target' : 'Ended without effect'],
         ['Time', mmss(s.time)],
-        ['Rounds fired', String(s.rounds)],
+        ['Adjusting rounds', String(s.adjustRounds)],
+        ['Fire for effect rounds', String(s.ffeRounds)],
         ['First round miss', s.firstMiss === null ? '—' : `${Math.round(s.firstMiss)} m`],
+        ['FFE mean miss', s.meanFFE === null ? '—' : `${Math.round(s.meanFFE)} m`],
         ['Accuracy', String(s.accuracy)],
         ['Economy', String(s.economy)],
         ['Speed', String(s.speed)],

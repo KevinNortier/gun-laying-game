@@ -35,8 +35,12 @@
         GL.Symbols.drawSymbolOnStaff(ctx, x, y, s, m.target, false);
       }
 
-      const last = mm.impacts.length - 1;
-      mm.impacts.forEach((imp, i) => this._burst(view, ctx, imp, i === last));
+      // The FDC only learns where rounds land from the observer; bursts are shown in debug view
+      // and in the debrief once the mission is over.
+      if (reveal) {
+        const last = mm.impacts.length - 1;
+        mm.impacts.forEach((imp, i) => this._burst(view, ctx, imp, i === last));
+      }
     }
 
     _burst(view, ctx, imp, latest) {
