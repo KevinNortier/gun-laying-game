@@ -21,6 +21,7 @@
     <button id="marker-toggle" type="button" aria-pressed="false" title="Place and edit your own markers (M)">Markers</button>
     <button id="ft-toggle" type="button" title="Show or hide the firing tables (F)">Firing tables</button>
     <button id="legend-toggle" type="button" aria-pressed="false" title="Map legend (L)">Legend</button>
+    <button id="glossary-toggle" type="button" aria-pressed="false" title="Glossary of terms (G)">Glossary</button>
     <div class="spacer"></div>
     <button id="settings-toggle" type="button" aria-pressed="false" title="Settings">Settings</button>
     <span class="muted">Map <code id="seed"></code></span>
@@ -56,6 +57,14 @@
         </label>
         <p class="small muted">Settings and course progress are remembered in this browser.</p>
         <button id="course-reset" type="button">Reset course progress</button>
+      </aside>
+      <aside id="glossary" class="card glossary-card" hidden>
+        <div class="card-head">
+          <h2>Glossary</h2>
+          <button id="glossary-close" type="button" aria-label="Close">×</button>
+        </div>
+        <input id="glossary-search" type="search" placeholder="Search terms" aria-label="Search glossary">
+        <div id="glossary-list"></div>
       </aside>
       <aside id="legend" class="card legend-card" hidden>
         <div class="card-head">
@@ -157,7 +166,7 @@
       </section>
 
       <section id="met-panel" class="panel" hidden>
-        <h2>Met message</h2>
+        <h2><span class="term" data-term="met-message">Met message</span></h2>
         <dl id="met-body" class="met"></dl>
         <p class="small muted">Wind is the ballistic wind, direction it blows <b>from</b> (grid). Density is at the
           mortar position. Propellant temperature is measured at the mortar.</p>
@@ -172,9 +181,9 @@
         <h2>Fire command</h2>
         <p id="laid-info" class="small muted"></p>
         <form id="fire-form" autocomplete="off">
-          <label>Charge <select id="f-charge"></select></label>
-          <label>Deflection <input id="f-defl" type="number" inputmode="numeric" min="0" max="6399" step="1" placeholder="mils"></label>
-          <label>Elevation <input id="f-elev" type="number" inputmode="numeric" min="800" max="1511" step="1" placeholder="mils"></label>
+          <label><span class="term" data-term="charge">Charge</span> <select id="f-charge"></select></label>
+          <label><span class="term" data-term="deflection">Deflection</span> <input id="f-defl" type="number" inputmode="numeric" min="0" max="6399" step="1" placeholder="mils"></label>
+          <label><span class="term" data-term="elevation">Elevation</span> <input id="f-elev" type="number" inputmode="numeric" min="800" max="1511" step="1" placeholder="mils"></label>
           <label>Rounds
             <select id="f-rounds">
               <option>1</option><option>2</option><option>3</option><option>4</option><option>6</option>
@@ -185,23 +194,23 @@
         <p id="fire-msg" class="small" role="status"></p>
         <details class="small">
           <summary>Laying the mortar</summary>
-          <p>The mortar is laid on the azimuth of fire with the referred deflection set on the sight. To engage a
-            target on another azimuth, change the deflection: <b>left add, right subtract</b>.
+          <p>The mortar is laid on the <span class="term" data-term="azimuth-of-fire">azimuth of fire</span> with the <span class="term" data-term="referred-deflection">referred deflection</span> set on the sight. To engage a
+            target on another azimuth, change the deflection: <b><span class="term" data-term="lars">left add, right subtract</span></b>.
             Deflection = referred deflection + (azimuth of fire − target azimuth).</p>
           <p>Elevation comes from the firing table for the chosen charge and the target range.</p>
         </details>
         <details class="small">
           <summary>Adjusting fire</summary>
-          <p>The observer's corrections are along their own line to the target (the OT direction), and move the
+          <p>The observer's corrections are along their own line to the target (the <span class="term" data-term="direction">OT direction</span>), and move the
             <b>previous aim point</b>: right/left across that line, add/drop along it.</p>
-          <p>Open the <b>Target grid</b> (T), enter the OT direction and click your previous aim point. Count the
-            correction off the grid, then measure the new point with the <b>Range arm</b> and compute new data.</p>
-          <p>Fire single rounds while adjusting. When the observer calls <b>fire for effect</b>, fire 3–4 rounds.</p>
+          <p>Open the <b><span class="term" data-term="target-grid">Target grid</span></b> (T), enter the OT direction and click your previous aim point. Count the
+            correction off the grid, then measure the new point with the <b><span class="term" data-term="range-arm">Range arm</span></b> and compute new data.</p>
+          <p>Fire single rounds while adjusting. When the observer calls <b><span class="term" data-term="fire-for-effect">fire for effect</span></b>, fire 3–4 rounds.</p>
         </details>
         <details class="small">
           <summary>Height difference (VI)</summary>
           <p>The firing table assumes the target is at the mortar's altitude. Read the target's altitude off the
-            contours and spot heights; the vertical interval VI = target altitude − mortar altitude.</p>
+            contours and spot heights; the <span class="term" data-term="vi">vertical interval VI</span> = target altitude − mortar altitude.</p>
           <p>The column <b>Target 10 m higher</b> gives the effect on range (negative: the round falls short).
             Compensate by firing at a corrected range:
             <b>corrected range = map range − (VI ÷ 10) × table value</b>, then look up the elevation for the
@@ -213,18 +222,18 @@
         </details>
         <details class="small">
           <summary>Polar and shift missions (magnetic)</summary>
-          <p>In these missions the observer reads directions off a compass: they are <b>magnetic</b>. Convert them
+          <p>In these missions the observer reads directions off a compass: they are <b><span class="term" data-term="magnetic-north">magnetic</span></b>. Convert them
             with the declination diagram in the map corner before plotting or entering them in the target grid.</p>
-          <p><b>Polar:</b> "direction, distance, up/down" from the observer. Set the range arm pivot to T31, plot the
+          <p><b><span class="term" data-term="polar-mission">Polar:</span></b> "direction, distance, up/down" from the observer. Set the range arm pivot to T31, plot the
             grid direction and distance, then measure from the mortar. "Up 40" means the target is 40 m higher
             than the observer.</p>
-          <p><b>Shift:</b> "shift AB0001, direction, left/right, add/drop, up/down". Centre the target grid on the
+          <p><b><span class="term" data-term="shift">Shift:</span></b> "shift AB0001, direction, left/right, add/drop, up/down". Centre the target grid on the
             known point, oriented to the grid direction, and count off the shift.</p>
           <p>Later corrections use the same (magnetic) direction as their axis.</p>
         </details>
         <details class="small">
           <summary>Met corrections</summary>
-          <p>Standard conditions: no wind, air 15 °C, density 100 %, propellant 21 °C. With a met message, work out
+          <p><span class="term" data-term="standard-conditions">Standard conditions</span>: no wind, air 15 °C, density 100 %, propellant 21 °C. With a met message, work out
             the effect of each deviation with the firing table (at the target range, for your charge):</p>
           <p><b>1. Wind components.</b> With θ = wind direction − target azimuth:
             head wind = speed × cos θ (negative = tail wind), cross wind from the left = speed × sin(−θ).</p>
@@ -245,7 +254,7 @@
     <span><span class="muted">Elev</span> <span id="st-elev">—</span></span>
     <span><span class="muted">Scale</span> <span id="st-scale">—</span></span>
     <span class="spacer"></span>
-    <span class="muted hint">Drag to pan · wheel / double-click to zoom · R range arm · T target grid · M markers · L legend · F firing tables · S skip</span>
+    <span class="muted hint">Drag to pan · wheel / double-click to zoom · R range arm · T target grid · M markers · L legend · G glossary · F firing tables · S skip</span>
   </footer>
 
   <script src="js/noise.js"></script>
@@ -270,6 +279,7 @@
   <script src="js/campaign.js"></script>
   <script src="js/missionui.js"></script>
   <script src="js/legend.js"></script>
+  <script src="js/glossary.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

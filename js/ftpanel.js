@@ -4,17 +4,17 @@
 
   const COLUMNS = [
     { key: 'range', head: 'Range', unit: 'm', fmt: (v) => v.toFixed(0) },
-    { key: 'elev', head: 'Elev', unit: 'mil', fmt: (v) => v.toFixed(0), strong: true },
-    { key: 'dElev100', head: 'ΔElev per 100 m', unit: 'mil', fmt: (v) => v.toFixed(0) },
-    { key: 'tof', head: 'Time of flight', unit: 's', fmt: (v) => v.toFixed(1) },
-    { key: 'maxOrd', head: 'Max ord', unit: 'm', fmt: (v) => v.toFixed(0) },
-    { key: 'vi10', head: 'Target 10 m higher', unit: 'm', fmt: signed, group: 'range' },
-    { key: 'headWind', head: 'Head wind 1 m/s', unit: 'm', fmt: signed, group: 'range' },
-    { key: 'tailWind', head: 'Tail wind 1 m/s', unit: 'm', fmt: signed, group: 'range' },
-    { key: 'airTemp', head: 'Air temp +1 °C', unit: 'm', fmt: signed, group: 'range' },
-    { key: 'density', head: 'Density +1 %', unit: 'm', fmt: signed, group: 'range' },
-    { key: 'propTemp', head: 'Prop temp +1 °C', unit: 'm', fmt: signed, group: 'range' },
-    { key: 'crossWind', head: 'Cross wind 1 m/s (L→R)', unit: 'mil R', fmt: (v) => v.toFixed(1), group: 'defl' },
+    { key: 'elev', term: 'elevation', head: 'Elev', unit: 'mil', fmt: (v) => v.toFixed(0), strong: true },
+    { key: 'dElev100', term: 'elevation', head: 'ΔElev per 100 m', unit: 'mil', fmt: (v) => v.toFixed(0) },
+    { key: 'tof', term: 'time-of-flight', head: 'Time of flight', unit: 's', fmt: (v) => v.toFixed(1) },
+    { key: 'maxOrd', term: 'max-ord', head: 'Max ord', unit: 'm', fmt: (v) => v.toFixed(0) },
+    { key: 'vi10', term: 'vi', head: 'Target 10 m higher', unit: 'm', fmt: signed, group: 'range' },
+    { key: 'headWind', term: 'head-wind', head: 'Head wind 1 m/s', unit: 'm', fmt: signed, group: 'range' },
+    { key: 'tailWind', term: 'head-wind', head: 'Tail wind 1 m/s', unit: 'm', fmt: signed, group: 'range' },
+    { key: 'airTemp', term: 'air-temperature', head: 'Air temp +1 °C', unit: 'm', fmt: signed, group: 'range' },
+    { key: 'density', term: 'air-density', head: 'Density +1 %', unit: 'm', fmt: signed, group: 'range' },
+    { key: 'propTemp', term: 'propellant-temperature', head: 'Prop temp +1 °C', unit: 'm', fmt: signed, group: 'range' },
+    { key: 'crossWind', term: 'cross-wind', head: 'Cross wind 1 m/s (L→R)', unit: 'mil R', fmt: (v) => v.toFixed(1), group: 'defl' },
   ];
 
   function signed(v) {
@@ -87,7 +87,8 @@
       groupRow.append(el('th', { colspan: '1', class: 'grp' }, 'Deflection effect'));
       const headRow = el('tr');
       for (const c of COLUMNS) {
-        headRow.append(el('th', null, c.head, el('span', { class: 'unit' }, c.unit)));
+        const label = c.term ? el('span', { class: 'term', 'data-term': c.term }, c.head) : c.head;
+        headRow.append(el('th', null, label, el('span', { class: 'unit' }, c.unit)));
       }
       thead.append(groupRow, headRow);
 

@@ -379,6 +379,7 @@
       case 't': case 'T': setTool('grid'); break;
       case 'm': case 'M': setTool('marker'); break;
       case 'l': case 'L': setLegend($('legend').hidden); break;
+      case 'g': case 'G': glossary.toggle(); break;
       case 'Delete': case 'Backspace':
         if (tool === 'marker' && markers.selected) markers.remove(markers.selected);
         else return;
@@ -386,6 +387,7 @@
       case 's': case 'S': manager.skip(); break;
       case 'Escape':
         if (ftPanel.visible) ftPanel.hide();
+        else if (glossary.visible) glossary.hide();
         else if (tool) setTool(tool);
         else showInfo(null);
         break;
@@ -455,10 +457,28 @@
   S.onChange(applySetting);
   for (const key of ['hillshade', 'showEnemy', 'showBursts', 'readout']) applySetting(key);
 
+  // Settings, legend and glossary share the top-right corner: opening one closes the others.
+  function closeCards(except) {
+    if (except !== 'settings' && !$('settings').hidden) setSettings(false);
+    if (except !== 'legend' && !$('legend').hidden) setLegend(false);
+    if (except !== 'glossary' && glossary.visible) glossary.hide();
+  }
+
   function setSettings(open) {
+    if (open) closeCards('settings');
     $('settings').hidden = !open;
     $('settings-toggle').setAttribute('aria-pressed', String(open));
   }
+
+  const glossary = new GL.GlossaryPanel($('glossary'));
+  glossary.onToggle = (open) => {
+    $('glossary-toggle').setAttribute('aria-pressed', String(open));
+    if (open) {
+      closeCards('glossary');
+      showInfo(null);
+    }
+  };
+  $('glossary-toggle').addEventListener('click', () => glossary.toggle());
   $('settings-toggle').addEventListener('click', () => setSettings($('settings').hidden));
   $('settings-close').addEventListener('click', () => setSettings(false));
   $('course-reset').addEventListener('click', () => {
@@ -476,6 +496,7 @@
   }
 
   function setLegend(open) {
+    if (open) closeCards('legend');
     $('legend').hidden = !open;
     $('legend-toggle').setAttribute('aria-pressed', String(open));
     if (open) {

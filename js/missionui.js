@@ -239,7 +239,7 @@
         who.className = 'who';
         who.textContent = r.from === 'SYS' ? '!' : r.from;
         const text = document.createElement('span');
-        text.textContent = r.text;
+        GL.linkRadioText(text, r.text);
         li.append(who, text);
         log.append(li);
         log.scrollTop = log.scrollHeight;

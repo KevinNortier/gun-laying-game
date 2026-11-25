@@ -806,3 +806,75 @@ details p {
 .settings-divider::after {
   flex: 1;
 }
+
+.term {
+  text-decoration: underline dotted;
+  text-decoration-color: rgba(200, 179, 90, 0.7);
+  text-underline-offset: 2px;
+  cursor: help;
+}
+
+.ft-table .term {
+  text-decoration-color: rgba(90, 80, 50, 0.6);
+}
+
+.glossary-card {
+  width: 380px;
+  max-height: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.glossary-card[hidden] {
+  display: none;
+}
+
+#glossary-search {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #151815;
+  color: var(--text);
+}
+
+#glossary-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+#glossary-list details {
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 3px;
+  transition: background 0.4s;
+}
+
+#glossary-list details.flash {
+  background: rgba(200, 179, 90, 0.2);
+}
+
+#glossary-list summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+#glossary-list p {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+#glossary-list .gl-short {
+  color: var(--text);
+}
+
+#glossary-list .gl-see {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#glossary-list a {
+  color: var(--accent);
+}
