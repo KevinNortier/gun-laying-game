@@ -151,7 +151,8 @@ main {
   gap: 8px;
 }
 
-.card h2 {
+.card h2,
+.drawer h2 {
   flex: 1;
   margin: 0 0 6px;
   font-size: 14px;
@@ -177,6 +178,121 @@ main {
 .card dd {
   margin: 0;
   font-family: ui-monospace, Consolas, monospace;
+}
+
+.drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(860px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: rgba(30, 35, 30, 0.97);
+  border-right: 1px solid var(--border);
+  box-shadow: 4px 0 14px rgba(0, 0, 0, 0.35);
+}
+
+.drawer[hidden] {
+  display: none;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tabs button[aria-selected='true'] {
+  background: var(--accent);
+  color: #1b1b12;
+  border-color: var(--accent);
+}
+
+.table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  background: #f4f1e4;
+  color: #1a1a14;
+}
+
+.ft-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+
+.ft-table th {
+  position: sticky;
+  background: #dcd6bf;
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 4px 5px;
+  text-align: right;
+  vertical-align: bottom;
+  border-bottom: 1px solid #8c856c;
+}
+
+.ft-table thead tr:first-child th {
+  top: 0;
+  height: 20px;
+  text-align: center;
+  border-bottom: 0;
+}
+
+.ft-table thead tr:last-child th {
+  top: 20px;
+}
+
+.ft-table th.grp:not(:empty) {
+  border-bottom: 1px solid #8c856c;
+}
+
+.ft-table .unit {
+  display: block;
+  font-weight: 400;
+  color: #5c5644;
+}
+
+.ft-table td {
+  padding: 2px 6px;
+  text-align: right;
+  border-bottom: 1px solid #e2dcc6;
+  white-space: nowrap;
+}
+
+.ft-table td.strong {
+  font-weight: 700;
+}
+
+.ft-table tr.major td {
+  border-top: 2px solid #8c856c;
+  background: #ebe5cf;
+}
+
+.ft-table tbody tr:hover td {
+  background: #ffe9a8;
+}
+
+details summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+details ul {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+
+details p {
+  margin: 6px 0 0;
 }
 
 .small {

@@ -203,7 +203,11 @@
       case 'ArrowUp': view.panByCss(0, step); break;
       case 'ArrowDown': view.panByCss(0, -step); break;
       case 'Home': homeView(); break;
-      case 'Escape': showInfo(null); break;
+      case 'f': case 'F': ftPanel.toggle(); break;
+      case 'Escape':
+        if (ftPanel.visible) ftPanel.hide();
+        else showInfo(null);
+        break;
       default: return;
     }
     ev.preventDefault();
@@ -235,6 +239,9 @@
   });
 
   $('home').addEventListener('click', homeView);
+
+  const ftPanel = new GL.FiringTablePanel($('ft'), scenario.weapon);
+  $('ft-toggle').addEventListener('click', () => ftPanel.toggle());
 
   $('new-map').addEventListener('click', () => {
     seed = String(Math.floor(Math.random() * 90000) + 10000);
