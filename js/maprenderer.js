@@ -212,6 +212,7 @@
       this.spots = new Map();
       this.options = { hillshade: true };
       this.marker = null; // { e, n, label }
+      this.layers = []; // objects with draw(view, ctx) and optional hitTest(x, y) in device px
       this.onRender = null;
       this._raf = 0;
       this.resize();
@@ -267,6 +268,16 @@
     // Position in CSS pixels relative to the canvas -> world metres.
     clientToWorld(cssX, cssY) {
       return this.screenToWorld(cssX * this.dpr, cssY * this.dpr);
+    }
+
+    // Topmost layer feature under a CSS-pixel position, or null.
+    hitTest(cssX, cssY) {
+      for (let i = this.layers.length - 1; i >= 0; i--) {
+        const layer = this.layers[i];
+        const hit = layer.hitTest && layer.hitTest(cssX * this.dpr, cssY * this.dpr);
+        if (hit) return hit;
+      }
+      return null;
     }
 
     clampView() {
@@ -415,6 +426,7 @@
       this._drawOutside();
       this._drawGrid();
       this._drawSpotHeights();
+      for (const layer of this.layers) layer.draw(this, ctx);
       this._drawMarker();
       this._drawScaleBar();
 

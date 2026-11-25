@@ -1,4 +1,4 @@
-// App wiring: map view, mouse/touch/keyboard input, status bar and header controls.
+// App wiring: map view, scenario layer, mouse/touch/keyboard input, status bar, info card, header controls.
 (function (GL) {
   'use strict';
 
@@ -6,10 +6,21 @@
   const params = new URLSearchParams(location.search);
   let seed = params.get('seed') || '1944';
   let terrain = GL.createTerrain(seed);
+  let scenario = GL.createScenario(terrain, seed);
 
   const canvas = $('map');
   const view = new GL.MapView(canvas, terrain);
+  const layer = new GL.ScenarioLayer();
+  layer.scenario = scenario;
+  view.layers.push(layer);
   $('seed').textContent = seed;
+
+  // Start looking from the guns towards the sector.
+  function homeView() {
+    const [e, n] = GL.Geo.polar(scenario.gun.e, scenario.gun.n, scenario.azimuthOfFire, 2000);
+    view.centerOn(e, n, 7);
+  }
+  homeView();
 
   // ---- status bar ---------------------------------------------------------
 
@@ -40,10 +51,58 @@
   view.onRender = updateReadout;
   updateReadout();
 
-  // ---- pointer input (mouse drag, wheel, touch pinch) ----------------------
+  // ---- info card for the selected feature ----------------------------------
+
+  function showInfo(f) {
+    layer.selected = f;
+    view.requestRender();
+    const card = $('info');
+    if (!f) {
+      card.hidden = true;
+      return;
+    }
+    const rows = [];
+    const alt = Math.round(terrain.height(f.e, f.n));
+    if (f === scenario.gun) {
+      rows.push(['Weapon', scenario.weapon.name]);
+      rows.push(['Grid', GL.MGRS.format(f.e, f.n, 5)]);
+      rows.push(['Altitude', `${alt} m`]);
+      rows.push(['Azimuth of fire', `${GL.Geo.fmtMils(scenario.azimuthOfFire)} mils`]);
+      rows.push(['Sector', `L ${GL.Geo.fmtMils(scenario.sector.left)} – R ${GL.Geo.fmtMils(scenario.sector.right)}`]);
+      rows.push(['Range', `${scenario.weapon.minRange}–${scenario.weapon.maxRange} m`]);
+    } else if (f === scenario.observer) {
+      rows.push(['Grid', GL.MGRS.format(f.e, f.n, 4)]);
+      rows.push(['Altitude', `${alt} m`]);
+    } else {
+      rows.push(['Grid', GL.MGRS.format(f.e, f.n, 4)]);
+      rows.push(['Altitude', `${alt} m`]);
+      if (f.affiliation === 'hostile') {
+        rows.push(['Observed', f.visibleToObserver ? 'Visible to T31' : 'Not visible to T31']);
+      }
+    }
+
+    const title = f.label ? `${f.label} — ${f.description}` : f.kind === 'knownPoint' ? `${f.id} — ${f.description}` : `Enemy — ${f.description}`;
+    $('info-title').textContent = title;
+    const body = $('info-body');
+    body.replaceChildren();
+    for (const [k, v] of rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = k;
+      const dd = document.createElement('dd');
+      dd.textContent = v;
+      body.append(dt, dd);
+    }
+    $('info-note').hidden = f.affiliation !== 'hostile';
+    card.hidden = false;
+  }
+
+  $('info-close').addEventListener('click', () => showInfo(null));
+
+  // ---- pointer input (mouse drag, wheel, touch pinch, click) ---------------
 
   const pointers = new Map();
   let pinch = null;
+  let tap = null; // start of a potential click
 
   function pos(ev) {
     const r = canvas.getBoundingClientRect();
@@ -56,8 +115,14 @@
   }
 
   canvas.addEventListener('pointerdown', (ev) => {
-    canvas.setPointerCapture(ev.pointerId);
-    pointers.set(ev.pointerId, pos(ev));
+    try {
+      canvas.setPointerCapture(ev.pointerId);
+    } catch (err) {
+      // Synthetic events have no active pointer to capture.
+    }
+    const p = pos(ev);
+    pointers.set(ev.pointerId, p);
+    tap = pointers.size === 1 ? p : null;
     if (pointers.size === 2) pinch = pinchState();
     canvas.classList.add('dragging');
   });
@@ -68,6 +133,7 @@
     const prev = pointers.get(ev.pointerId);
     if (prev) {
       pointers.set(ev.pointerId, p);
+      if (tap && Math.hypot(p.x - tap.x, p.y - tap.y) > 5) tap = null;
       if (pointers.size === 1) {
         view.panByCss(p.x - prev.x, p.y - prev.y);
       } else if (pointers.size === 2 && pinch) {
@@ -76,6 +142,8 @@
         if (pinch.d > 0) view.zoomAtCss(now.d / pinch.d, now.m.x, now.m.y);
         pinch = now;
       }
+    } else {
+      canvas.classList.toggle('over-feature', !!view.hitTest(p.x, p.y));
     }
     updateReadout();
   });
@@ -85,8 +153,18 @@
     pinch = pointers.size === 2 ? pinchState() : null;
     if (pointers.size === 0) canvas.classList.remove('dragging');
   }
-  canvas.addEventListener('pointerup', endPointer);
-  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('pointerup', (ev) => {
+    if (tap && pointers.size === 1 && ev.type === 'pointerup') {
+      const p = pos(ev);
+      showInfo(view.hitTest(p.x, p.y));
+    }
+    tap = null;
+    endPointer(ev);
+  });
+  canvas.addEventListener('pointercancel', (ev) => {
+    tap = null;
+    endPointer(ev);
+  });
   canvas.addEventListener('pointerleave', () => {
     if (pointers.size === 0) {
       lastCursor = null;
@@ -124,6 +202,8 @@
       case 'ArrowRight': view.panByCss(-step, 0); break;
       case 'ArrowUp': view.panByCss(0, step); break;
       case 'ArrowDown': view.panByCss(0, -step); break;
+      case 'Home': homeView(); break;
+      case 'Escape': showInfo(null); break;
       default: return;
     }
     ev.preventDefault();
@@ -148,16 +228,33 @@
 
   $('opt-hillshade').addEventListener('change', (ev) => view.setOption('hillshade', ev.target.checked));
 
+  $('opt-enemy').addEventListener('change', (ev) => {
+    layer.showEnemy = ev.target.checked;
+    if (!layer.showEnemy && layer.selected && layer.selected.affiliation === 'hostile') showInfo(null);
+    view.requestRender();
+  });
+
+  $('home').addEventListener('click', homeView);
+
   $('new-map').addEventListener('click', () => {
     seed = String(Math.floor(Math.random() * 90000) + 10000);
     params.set('seed', seed);
     history.replaceState(null, '', '?' + params.toString());
     terrain = GL.createTerrain(seed);
+    scenario = GL.createScenario(terrain, seed);
+    layer.scenario = scenario;
+    showInfo(null);
     view.marker = null;
     view.setTerrain(terrain);
+    homeView();
     $('seed').textContent = seed;
   });
 
   // Exposed for debugging in the browser console.
-  GL.app = { view, get terrain() { return terrain; } };
+  GL.app = {
+    view,
+    layer,
+    get terrain() { return terrain; },
+    get scenario() { return scenario; },
+  };
 })((window.GL = window.GL || {}));

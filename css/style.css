@@ -124,8 +124,64 @@ main {
   touch-action: none;
 }
 
+#map.over-feature {
+  cursor: pointer;
+}
+
 #map.dragging {
   cursor: grabbing;
+}
+
+.card {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 300px;
+  max-width: calc(100% - 24px);
+  padding: 10px 12px;
+  background: rgba(30, 35, 30, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.card h2 {
+  flex: 1;
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.card-head button {
+  padding: 0 7px;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.card dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0;
+}
+
+.card dt {
+  color: var(--muted);
+}
+
+.card dd {
+  margin: 0;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.small {
+  margin: 8px 0 0;
+  font-size: 12px;
 }
 
 @media (max-width: 700px) {
