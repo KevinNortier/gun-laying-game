@@ -9,10 +9,13 @@
     return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
   }
 
+  const starText = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
+
   class MissionUI {
     constructor() {
       this.manager = null;
       this._radioCount = 0;
+      this.course = new GL.Course();
 
       const typeSel = $('mission-type');
       for (const [key, t] of Object.entries(GL.MISSION_TYPES)) {
@@ -22,11 +25,36 @@
         typeSel.append(o);
       }
 
+      for (const b of document.querySelectorAll('.mode-tabs button')) {
+        b.addEventListener('click', () => {
+          if (this._busy()) return;
+          this.course.mode = b.dataset.mode;
+          $('course-result').hidden = true;
+          this.render();
+        });
+      }
+      $('course-stage').addEventListener('change', (ev) => {
+        this.course.select(Number(ev.target.value));
+        $('course-result').hidden = true;
+        this.render();
+      });
+
       $('btn-mission').addEventListener('click', () => {
         const mm = this.manager;
         if (!mm) return;
-        if (mm.state === 'idle' || mm.state === 'complete') mm.start(typeSel.value, { met: $('opt-met').checked });
-        else if (confirm('End this mission without effect on target?')) mm.end();
+        if (mm.state === 'idle' || mm.state === 'complete') {
+          $('course-result').hidden = true;
+          const before = mm.missionCount;
+          if (this.course.mode === 'course') {
+            const p = this.course.missionParams(mm.rand);
+            mm.start(p.type, { met: p.met });
+            if (mm.missionCount > before) mm.mission.courseStage = p.stage;
+          } else {
+            mm.start(typeSel.value, { met: $('opt-met').checked });
+          }
+        } else if (confirm('End this mission without effect on target?')) {
+          mm.end();
+        }
       });
       $('btn-skip').addEventListener('click', () => this.manager && this.manager.skip());
 
@@ -66,16 +94,77 @@
       this.render();
     }
 
+    _busy() {
+      const mm = this.manager;
+      return !!mm && (mm.state === 'receiving' || mm.state === 'ready' || mm.state === 'firing');
+    }
+
+    // Records a finished course mission once, and shows the stage outcome.
+    _recordCourse() {
+      const m = this.manager.mission;
+      if (!m || !m.score || !m.courseStage || m.courseRecorded) return;
+      m.courseRecorded = true;
+      const out = this.course.record(m.courseStage, m.score.total);
+      if (!out) return;
+      const el = $('course-result');
+      el.hidden = false;
+      el.classList.toggle('fail', out.done && !out.passed);
+      if (!out.done) {
+        el.textContent = `Mission ${out.count} of ${out.of} recorded: ${m.score.total} points.`;
+      } else if (out.passed) {
+        el.textContent = `Stage passed ${starText(out.stars)} — average ${out.avg}.` +
+          (out.next ? ` Unlocked: ${out.next.title}.` : '');
+      } else {
+        el.textContent = `Stage not passed — average ${out.avg} (pass mark ${GL.COURSE.PASS}). Try again.`;
+      }
+    }
+
+    renderCourse() {
+      const course = this.course;
+      const isCourse = course.mode === 'course';
+      for (const b of document.querySelectorAll('.mode-tabs button')) {
+        b.setAttribute('aria-selected', String(b.dataset.mode === course.mode));
+        b.disabled = this._busy() && b.dataset.mode !== course.mode;
+      }
+      $('course-box').hidden = !isCourse;
+      $('free-box').hidden = isCourse;
+      if (!isCourse) return;
+      const sel = $('course-stage');
+      sel.replaceChildren();
+      GL.COURSE.STAGES.forEach((st, i) => {
+        const r = course.result(i);
+        const o = document.createElement('option');
+        o.value = String(i);
+        const lock = course.unlocked(i) ? '' : ' (locked)';
+        o.textContent = `${i + 1}. ${st.title}${r ? `  ${starText(r.stars)}` : ''}${lock}`;
+        o.disabled = !course.unlocked(i);
+        sel.append(o);
+      });
+      sel.value = String(course.selected);
+      sel.disabled = this._busy();
+      const st = GL.COURSE.STAGES[course.selected];
+      $('course-brief').textContent = st.brief + (st.met ? ' (Non-standard weather.)' : '');
+      const scores = course.runScores;
+      const best = course.result(course.selected);
+      $('course-progress').textContent =
+        `Mission ${Math.min(scores.length + 1, GL.COURSE.PER_STAGE)} of ${GL.COURSE.PER_STAGE}` +
+        (scores.length ? ` · so far ${scores.join(', ')}` : '') +
+        ` · pass mark ${GL.COURSE.PASS} average` +
+        (best ? ` · best ${best.best}` : '');
+    }
+
     render() {
       const mm = this.manager;
       if (!mm) return;
       const m = mm.mission;
       const btn = $('btn-mission');
       const status = $('mission-status');
-      const busy = mm.state === 'receiving' || mm.state === 'ready' || mm.state === 'firing';
+      const busy = this._busy();
+      if (mm.state === 'complete') this._recordCourse();
       btn.textContent = busy ? 'End mission' : 'New mission';
       $('mission-type').disabled = busy;
       $('opt-met').disabled = busy;
+      this.renderCourse();
       this.renderMet();
       if (!m) status.textContent = 'No mission. Press New mission to receive a call for fire.';
       else if (mm.state === 'receiving') status.textContent = `Receiving call for fire…`;

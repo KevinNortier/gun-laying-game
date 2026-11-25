@@ -22,8 +22,7 @@
     <button id="ft-toggle" type="button" title="Show or hide the firing tables (F)">Firing tables</button>
     <button id="legend-toggle" type="button" aria-pressed="false" title="Map legend (L)">Legend</button>
     <div class="spacer"></div>
-    <label class="toggle"><input type="checkbox" id="opt-hillshade" checked> Relief</label>
-    <label class="toggle" title="Debug: show enemy positions and where rounds land (the FDC normally knows neither)"><input type="checkbox" id="opt-enemy"> Debug view</label>
+    <button id="settings-toggle" type="button" aria-pressed="false" title="Settings">Settings</button>
     <span class="muted">Map <code id="seed"></code></span>
     <select id="theme-select" aria-label="Map theme" title="Terrain theme for new maps">
       <option value="">Random theme</option>
@@ -38,6 +37,26 @@
   <main>
     <div id="map-wrap">
       <canvas id="map" aria-label="Topographic map"></canvas>
+      <aside id="settings" class="card settings-card" hidden>
+        <div class="card-head">
+          <h2>Settings</h2>
+          <button id="settings-close" type="button" aria-label="Close">×</button>
+        </div>
+        <label class="toggle"><input type="checkbox" id="opt-hillshade"> Relief shading</label>
+        <label class="toggle" title="Off: read grid references and heights from the map grid and contours only">
+          <input type="checkbox" id="opt-readout"> Cursor grid &amp; elevation readout
+        </label>
+        <label class="toggle"><input type="checkbox" id="opt-autoskip"> Fast-forward rounds in flight</label>
+        <div class="settings-divider"><span>Debug</span></div>
+        <label class="toggle" title="The true target position and the scenario's enemy units (the FDC normally does not know them)">
+          <input type="checkbox" id="opt-enemy"> Show enemy positions
+        </label>
+        <label class="toggle" title="Where each round lands (the FDC normally only has the observer's reports)">
+          <input type="checkbox" id="opt-bursts"> Show bursts
+        </label>
+        <p class="small muted">Settings and course progress are remembered in this browser.</p>
+        <button id="course-reset" type="button">Reset course progress</button>
+      </aside>
       <aside id="legend" class="card legend-card" hidden>
         <div class="card-head">
           <h2>Legend</h2>
@@ -111,15 +130,27 @@
           <h2>Fire mission</h2>
           <span id="mission-clock" class="clock">--:--</span>
         </div>
+        <div class="mode-tabs" role="tablist">
+          <button type="button" role="tab" data-mode="course">Training course</button>
+          <button type="button" role="tab" data-mode="free">Free play</button>
+        </div>
+        <div id="course-box">
+          <select id="course-stage" aria-label="Course stage"></select>
+          <p id="course-brief" class="small muted"></p>
+          <p id="course-progress" class="small"></p>
+        </div>
         <p id="mission-status" class="small"></p>
         <div class="row">
-          <select id="mission-type" aria-label="Mission type"></select>
-          <label class="toggle small met-toggle" title="Rounds fly in non-standard weather; a met message reports it">
-            <input type="checkbox" id="opt-met"> Non-standard weather (met)
-          </label>
+          <div id="free-box" class="free-box">
+            <select id="mission-type" aria-label="Mission type"></select>
+            <label class="toggle small met-toggle" title="Rounds fly in non-standard weather; a met message reports it">
+              <input type="checkbox" id="opt-met"> Non-standard weather (met)
+            </label>
+          </div>
           <button id="btn-mission" type="button" class="primary">New mission</button>
           <button id="btn-skip" type="button" hidden>Skip</button>
         </div>
+        <p id="course-result" class="course-result small" hidden></p>
         <div id="score" class="score" hidden>
           <dl id="score-body"></dl>
         </div>
@@ -218,6 +249,7 @@
   </footer>
 
   <script src="js/noise.js"></script>
+  <script src="js/settings.js"></script>
   <script src="js/themes.js"></script>
   <script src="js/terrain.js"></script>
   <script src="js/infrastructure.js"></script>
@@ -235,6 +267,7 @@
   <script src="js/markers.js"></script>
   <script src="js/mission.js"></script>
   <script src="js/missionlayer.js"></script>
+  <script src="js/campaign.js"></script>
   <script src="js/missionui.js"></script>
   <script src="js/legend.js"></script>
   <script src="js/main.js"></script>

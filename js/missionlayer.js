@@ -1,12 +1,13 @@
-// Map layer for the current fire mission: bursts (impacts) and, once the mission is over
-// (or in debug view), the true target position.
+// Map layer for the current fire mission: the true target position and the bursts (impacts).
+// Both are shown once the mission is over, or during it when the matching debug setting is on.
 (function (GL) {
   'use strict';
 
   class MissionLayer {
     constructor() {
       this.manager = null;
-      this.showEnemy = false;
+      this.showEnemy = false; // true target position during the mission
+      this.showBursts = false; // where rounds land during the mission
     }
 
     draw(view, ctx) {
@@ -14,9 +15,9 @@
       if (!mm || !mm.mission) return;
       const dpr = view.dpr;
       const m = mm.mission;
-      const reveal = this.showEnemy || mm.state === 'complete';
+      const done = mm.state === 'complete';
 
-      if (reveal) {
+      if (this.showEnemy || done) {
         const t = m.target;
         const [x, y] = view.worldToScreen(t.e, t.n);
         if (mm.state === 'complete') {
@@ -35,9 +36,8 @@
         GL.Symbols.drawSymbolOnStaff(ctx, x, y, s, m.target, false);
       }
 
-      // The FDC only learns where rounds land from the observer; bursts are shown in debug view
-      // and in the debrief once the mission is over.
-      if (reveal) {
+      // The FDC only learns where rounds land from the observer.
+      if (this.showBursts || done) {
         const last = mm.impacts.length - 1;
         mm.impacts.forEach((imp, i) => this._burst(view, ctx, imp, i === last));
       }

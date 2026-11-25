@@ -17,7 +17,7 @@
   const markers = new GL.MarkerLayer();
   view.layers.push(layer, missionLayer, grid, markers, arm);
   let tool = null; // 'arm' | 'grid' | 'marker' | null: which tool receives map clicks
-  layer.showEnemy = missionLayer.showEnemy = $('opt-enemy').checked;
+  // Debug visibility is set from the settings further down.
 
   const markerPanel = new GL.MarkerPanel($('marker-panel'), markers, view);
   markers.onChange = () => {
@@ -45,7 +45,11 @@
       },
       onRadio: () => missionUI.renderRadio(),
       onImpact: () => view.requestRender(),
-      onTick: () => missionUI.renderClock(),
+      onTick: () => {
+        // Fast-forward: jump through events while rounds are in flight.
+        if (GL.Settings.get('autoSkip') && manager.state === 'firing') manager.skip();
+        missionUI.renderClock();
+      },
       onStart: () => {
         if (!$('marker-keep').checked) markers.clear();
       },
@@ -78,6 +82,7 @@
       $('st-grid8').textContent = grid8;
       $('st-elev').textContent = elev;
     };
+    if (!GL.Settings.get('readout')) return set('off', 'off', 'off');
     if (!lastCursor) return set('—', '—', '—');
     const [e, n] = view.clientToWorld(lastCursor.x, lastCursor.y);
     if (e < 0 || n < 0 || e >= terrain.size || n >= terrain.size) return set('off map', '—', '—');
@@ -415,12 +420,51 @@
     view.centerOn(m.e, m.n, view.cssMpp > 8 ? 4 : undefined);
   });
 
-  $('opt-hillshade').addEventListener('change', (ev) => view.setOption('hillshade', ev.target.checked));
+  // ---- settings ---------------------------------------------------------------
 
-  $('opt-enemy').addEventListener('change', (ev) => {
-    layer.showEnemy = missionLayer.showEnemy = ev.target.checked;
-    if (!layer.showEnemy && layer.selected && layer.selected.affiliation === 'hostile') showInfo(null);
-    view.requestRender();
+  const S = GL.Settings;
+  function applySetting(key) {
+    const v = S.get(key);
+    if (key === 'hillshade') view.setOption('hillshade', v);
+    if (key === 'showEnemy') {
+      layer.showEnemy = missionLayer.showEnemy = v;
+      if (!v && layer.selected && layer.selected.affiliation === 'hostile') showInfo(null);
+      view.requestRender();
+    }
+    if (key === 'showBursts') {
+      missionLayer.showBursts = v;
+      view.requestRender();
+    }
+    if (key === 'readout') {
+      markerPanel.showGrids = v;
+      markerPanel.render();
+      updateReadout();
+    }
+  }
+  const SETTING_INPUTS = [
+    ['opt-hillshade', 'hillshade'],
+    ['opt-enemy', 'showEnemy'],
+    ['opt-bursts', 'showBursts'],
+    ['opt-readout', 'readout'],
+    ['opt-autoskip', 'autoSkip'],
+  ];
+  for (const [id, key] of SETTING_INPUTS) {
+    $(id).checked = S.get(key);
+    $(id).addEventListener('change', (ev) => S.set(key, ev.target.checked));
+  }
+  S.onChange(applySetting);
+  for (const key of ['hillshade', 'showEnemy', 'showBursts', 'readout']) applySetting(key);
+
+  function setSettings(open) {
+    $('settings').hidden = !open;
+    $('settings-toggle').setAttribute('aria-pressed', String(open));
+  }
+  $('settings-toggle').addEventListener('click', () => setSettings($('settings').hidden));
+  $('settings-close').addEventListener('click', () => setSettings(false));
+  $('course-reset').addEventListener('click', () => {
+    if (!confirm('Reset all training course progress?')) return;
+    missionUI.course.reset();
+    missionUI.render();
   });
 
   $('home').addEventListener('click', homeView);

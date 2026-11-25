@@ -125,6 +125,7 @@
       this.editor = root.querySelector('#marker-editor');
       this.label = root.querySelector('#marker-label');
       this.grid = root.querySelector('#marker-grid');
+      this.showGrids = true; // off when the cursor readout is off (no free grid readings)
 
       this.label.addEventListener('input', () => {
         if (this.layer.selected) {
@@ -150,7 +151,7 @@
       this.editor.hidden = !sel;
       if (sel) {
         if (document.activeElement !== this.label) this.label.value = sel.label;
-        this.grid.textContent = GL.MGRS.format(sel.e, sel.n, 5);
+        this.grid.textContent = this.showGrids ? GL.MGRS.format(sel.e, sel.n, 5) : '';
       }
       this._renderList();
     }
@@ -174,7 +175,7 @@
         name.textContent = m.label || '(no label)';
         const grid = document.createElement('span');
         grid.className = 'mono muted';
-        grid.textContent = GL.MGRS.format(m.e, m.n, 4, false);
+        grid.textContent = this.showGrids ? GL.MGRS.format(m.e, m.n, 4, false) : '';
         b.append(name, grid);
         b.addEventListener('click', () => {
           this.layer.select(m);
