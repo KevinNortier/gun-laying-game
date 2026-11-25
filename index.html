@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gun Laying</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>Gun Laying</h1>
+    <form id="goto-form" autocomplete="off">
+      <input id="goto-input" type="text" placeholder="Go to grid, e.g. 3846 7219" aria-label="Grid reference">
+      <button type="submit">Go</button>
+      <span id="goto-error" class="error" role="status"></span>
+    </form>
+    <div class="spacer"></div>
+    <label class="toggle"><input type="checkbox" id="opt-hillshade" checked> Relief shading</label>
+    <span class="muted">Map <code id="seed"></code></span>
+    <button id="new-map" type="button">New map</button>
+  </header>
+
+  <main>
+    <canvas id="map" aria-label="Topographic map"></canvas>
+  </main>
+
+  <footer>
+    <span><span class="muted">Grid</span> <span id="st-grid">—</span></span>
+    <span><span class="muted">8-fig</span> <span id="st-grid8">—</span></span>
+    <span><span class="muted">Elev</span> <span id="st-elev">—</span></span>
+    <span><span class="muted">Scale</span> <span id="st-scale">—</span></span>
+    <span class="spacer"></span>
+    <span class="muted hint">Drag to pan · wheel / double-click to zoom · +/− and arrow keys</span>
+  </footer>
+
+  <script src="js/noise.js"></script>
+  <script src="js/terrain.js"></script>
+  <script src="js/mgrs.js"></script>
+  <script src="js/maprenderer.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
