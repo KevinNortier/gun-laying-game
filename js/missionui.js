@@ -14,10 +14,18 @@
       this.manager = null;
       this._radioCount = 0;
 
+      const typeSel = $('mission-type');
+      for (const [key, t] of Object.entries(GL.MISSION_TYPES)) {
+        const o = document.createElement('option');
+        o.value = key;
+        o.textContent = t.label;
+        typeSel.append(o);
+      }
+
       $('btn-mission').addEventListener('click', () => {
         const mm = this.manager;
         if (!mm) return;
-        if (mm.state === 'idle' || mm.state === 'complete') mm.start();
+        if (mm.state === 'idle' || mm.state === 'complete') mm.start(typeSel.value);
         else if (confirm('End this mission without effect on target?')) mm.end();
       });
       $('btn-skip').addEventListener('click', () => this.manager && this.manager.skip());
@@ -66,6 +74,7 @@
       const status = $('mission-status');
       const busy = mm.state === 'receiving' || mm.state === 'ready' || mm.state === 'firing';
       btn.textContent = busy ? 'End mission' : 'New mission';
+      $('mission-type').disabled = busy;
       if (!m) status.textContent = 'No mission. Press New mission to receive a call for fire.';
       else if (mm.state === 'receiving') status.textContent = `Receiving call for fire…`;
       else if (mm.state === 'ready') {
@@ -80,6 +89,9 @@
       this.renderRadio();
       this.renderClock();
       this.renderScore();
+      // The score card can shrink the radio panel; keep the latest message in view.
+      const log = $('radio-log');
+      log.scrollTop = log.scrollHeight;
     }
 
     renderClock() {
@@ -134,6 +146,7 @@
         ['Fire for effect rounds', String(s.ffeRounds)],
         ['First round miss', s.firstMiss === null ? '—' : `${Math.round(s.firstMiss)} m`],
         ['FFE mean miss', s.meanFFE === null ? '—' : `${Math.round(s.meanFFE)} m`],
+        ['Target altitude', `${Math.round(s.targetAlt)} m (VI ${s.vi >= 0 ? '+' : '−'}${Math.abs(Math.round(s.vi))} m)`],
         ['Accuracy', String(s.accuracy)],
         ['Economy', String(s.economy)],
         ['Speed', String(s.speed)],

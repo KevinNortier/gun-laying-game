@@ -160,6 +160,20 @@ main {
   gap: 6px;
 }
 
+.row {
+  flex-wrap: wrap;
+}
+
+.row select {
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #151815;
+  color: var(--text);
+}
+
 button.primary {
   background: #55613f;
 }

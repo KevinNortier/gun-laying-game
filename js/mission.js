@@ -21,7 +21,6 @@
   const SMOKE_HEIGHT = 20; // a burst's smoke is visible this far above the ground
 
   // Observer errors.
-  const LOCATION_ERROR = [60, 250]; // metres, initial target location error (uniform)
   const DIRECTION_SIGMA = 5; // mils, compass error of the OT direction
   const LATERAL_SIGMA = 2; // mils, error measuring lateral deviation with binoculars
   const RANGE_EST_SIGMA = 0.25; // fractional error estimating range deviation
@@ -39,6 +38,28 @@
     { icon: 'antitank', echelon: 'section', text: 'anti-tank team in position' },
     { icon: 'mortar', echelon: 'section', text: 'mortar section firing' },
   ];
+
+  // Mission types.
+  //   vi        [min, max] |height difference| tiers between target and mortar, tried in order
+  //   method    'adjust' (adjust fire) or 'ffe' (fire for effect straight away)
+  //   locError  [min, max] metres of observer target location error
+  //   digits    digits per axis in the reported grid
+  const MISSION_TYPES = {
+    level: {
+      label: 'Level ground · adjust fire',
+      vi: [[0, 10], [0, 20], [0, 35], [0, 60]],
+      method: 'adjust',
+      locError: [60, 250],
+      digits: 4,
+    },
+    height: {
+      label: 'Height difference · fire for effect',
+      vi: [[50, 150], [35, 200], [20, 300]],
+      method: 'ffe',
+      locError: [0, 12],
+      digits: 5,
+    },
+  };
 
   function gaussian(rand) {
     let u = 0;
@@ -147,20 +168,23 @@
       );
     }
 
-    _generateTarget(maxVI) {
+    // Finds a visible target whose height above/below the mortar (VI) is within the mission
+    // type's tiers, tried in order: the first tier is the ideal, later ones are fallbacks for
+    // terrain that does not offer it.
+    _generateTarget(viTiers) {
       const { terrain, scenario } = this;
       const g = G();
       const { gun, observer: fo, weapon } = scenario;
       const gunAlt = terrain.height(gun.e, gun.n);
-      // If the terrain offers nothing near the mortar's altitude, relax the height limit in steps.
-      const tiers = [maxVI, maxVI * 2, maxVI * 3.5, maxVI * 6];
-      for (let tries = 0; tries < 4000; tries++) {
-        const vi = tiers[Math.floor(tries / 1000)];
+      const perTier = 1200;
+      for (let tries = 0; tries < viTiers.length * perTier; tries++) {
+        const [viMin, viMax] = viTiers[Math.floor(tries / perTier)];
         const az = scenario.azimuthOfFire + (this.rand() * 2 - 1) * 600;
         const d = 700 + this.rand() * (weapon.maxRange - 1000);
         const [e, n] = g.polar(gun.e, gun.n, az, d);
         const z = terrain.height(e, n);
-        if (z <= terrain.waterLevel + 1 || Math.abs(z - gunAlt) > vi) continue;
+        const vi = Math.abs(z - gunAlt);
+        if (z <= terrain.waterLevel + 1 || vi < viMin || vi > viMax) continue;
         if (e < 500 || n < 500 || e > terrain.size - 500 || n > terrain.size - 500) continue;
         const dFo = g.distance(fo.e, fo.n, e, n);
         if (dFo < 400 || dFo > 4000) continue;
@@ -172,9 +196,10 @@
 
     // ---- mission flow ---------------------------------------------------------
 
-    start() {
+    start(typeKey = 'level') {
       if (this.state !== 'idle' && this.state !== 'complete') return;
-      const pos = this._generateTarget(10);
+      const missionType = MISSION_TYPES[typeKey] || MISSION_TYPES.level;
+      const pos = this._generateTarget(missionType.vi);
       if (!pos) {
         this.radio.push({ t: this.time, from: 'SYS', text: 'No suitable target found on this map. Try a new map.' });
         this._changed();
@@ -185,17 +210,25 @@
       this.missionCount++;
       const type = TARGET_TYPES[Math.floor(this.rand() * TARGET_TYPES.length)];
 
-      // The observer's estimate of the target location is off by some tens of metres.
-      const errDist = LOCATION_ERROR[0] + this.rand() * (LOCATION_ERROR[1] - LOCATION_ERROR[0]);
+      // The observer's estimate of the target location: tens of metres off when plotted from the
+      // map, a few metres with a laser rangefinder.
+      const [locMin, locMax] = missionType.locError;
+      const errDist = locMin + this.rand() * (locMax - locMin);
       const [ee, en] = g.polar(pos.e, pos.n, this.rand() * 6400, errDist);
-      const reportedGrid = GL.MGRS.format(ee, en, 4, false);
+      const reportedGrid = GL.MGRS.format(ee, en, missionType.digits, false);
+      const method = missionType.method === 'ffe' ? 'fire for effect' : 'adjust fire';
       // OT direction as measured with a compass, to the nearest 10 mils.
       const otDir = g.normMils(roundTo(g.azimuthMils(fo.e, fo.n, pos.e, pos.n) + gaussian(this.rand) * DIRECTION_SIGMA, 10));
 
       this.impacts = [];
+      const gun = this.scenario.gun;
+      const targetAlt = this.terrain.height(pos.e, pos.n);
       this.mission = {
         number: `AB${1000 + this.missionCount}`,
+        missionType: typeKey,
         type,
+        targetAlt,
+        vi: targetAlt - this.terrain.height(gun.e, gun.n),
         target: {
           id: 'TGT',
           affiliation: 'hostile',
@@ -209,7 +242,8 @@
         locationError: errDist,
         otDir,
         directionSent: false,
-        phase: 'adjust', // adjust | ffe
+        method: missionType.method,
+        phase: missionType.method === 'ffe' ? 'ffe' : 'adjust', // adjust | ffe
         adj: { step: null, lastSpot: null, bracketed: false },
         startTime: null,
         effectTime: null,
@@ -225,8 +259,8 @@
       const sq = GL.MGRS.SQUARE_ID;
       const desc = capitalize(type.text);
       const t0 = 0.3;
-      this._say(this.fo, `${this.fdc}, this is ${this.fo}, adjust fire, over.`, t0);
-      this._say(this.fdc, `${this.fo}, this is ${this.fdc}, adjust fire, out.`, t0 + RADIO_GAP);
+      this._say(this.fo, `${this.fdc}, this is ${this.fo}, ${method}, over.`, t0);
+      this._say(this.fdc, `${this.fo}, this is ${this.fdc}, ${method}, out.`, t0 + RADIO_GAP);
       this._say(this.fo, `Grid ${sq} ${reportedGrid}, over.`, t0 + 2 * RADIO_GAP);
       this._say(this.fdc, `Grid ${sq} ${reportedGrid}, out.`, t0 + 3 * RADIO_GAP);
       this._say(this.fo, `${desc}, over.`, t0 + 4 * RADIO_GAP);
@@ -386,10 +420,13 @@
       for (const s of volley) s.miss = g.distance(s.e, s.n, t.e, t.n);
       if (m.firstMiss === null) m.firstMiss = volley[0].miss;
 
+      // Fire for effect needs two rounds on the target (one if only one was fired).
+      let partialHit = false;
       if (phase === 'ffe') {
         for (const s of volley) m.ffeMisses.push(s.miss);
         const hits = volley.filter((s) => s.miss <= EFFECT_RADIUS).length;
-        if (hits > 0) {
+        partialHit = hits > 0;
+        if (hits >= Math.min(2, volley.length)) {
           m.result = 'effective';
           m.effectTime = this.time;
           const cas = Math.min(12, hits * 2 + Math.floor(this.rand() * 4));
@@ -439,7 +476,7 @@
         }
       }
       const msg = capitalize(parts.join(', '));
-      this._say(this.fo, `${msg}, over.`, 0);
+      this._say(this.fo, `${partialHit ? 'Rounds on target, effect insufficient. ' : ''}${msg}, over.`, 0);
       this._say(this.fdc, `${msg}, out.`, RADIO_GAP);
       this._at(this.time + RADIO_GAP + 0.5, () => {
         this.state = 'ready';
@@ -486,9 +523,11 @@
         firstMiss: m.firstMiss,
         meanFFE,
         violations: m.violations,
+        targetAlt: m.targetAlt,
+        vi: m.vi,
       };
       if (s.effective) {
-        s.accuracy = Math.max(0, Math.round(400 - 5 * Math.max(0, meanFFE - 20)));
+        s.accuracy = Math.max(0, Math.round(400 - 8 * Math.max(0, meanFFE - 10)));
         s.economy = Math.max(0, 300 - 40 * Math.max(0, m.adjustRounds - 2) - 30 * Math.max(0, m.ffeRounds - 4));
         s.speed = Math.max(0, Math.round(300 - 1.5 * Math.max(0, time - 180)));
       } else {
@@ -504,5 +543,6 @@
   }
 
   GL.MissionManager = MissionManager;
+  GL.MISSION_TYPES = MISSION_TYPES;
   GL.MISSION_EFFECT_RADIUS = EFFECT_RADIUS;
 })((window.GL = window.GL || {}));

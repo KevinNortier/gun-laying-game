@@ -71,6 +71,7 @@
         </div>
         <p id="mission-status" class="small"></p>
         <div class="row">
+          <select id="mission-type" aria-label="Mission type"></select>
           <button id="btn-mission" type="button" class="primary">New mission</button>
           <button id="btn-skip" type="button" hidden>Skip</button>
         </div>
@@ -113,6 +114,19 @@
           <p>Open the <b>Target grid</b> (T), enter the OT direction and click your previous aim point. Count the
             correction off the grid, then measure the new point with the <b>Range arm</b> and compute new data.</p>
           <p>Fire single rounds while adjusting. When the observer calls <b>fire for effect</b>, fire 3–4 rounds.</p>
+        </details>
+        <details class="small">
+          <summary>Height difference (VI)</summary>
+          <p>The firing table assumes the target is at the mortar's altitude. Read the target's altitude off the
+            contours and spot heights; the vertical interval VI = target altitude − mortar altitude.</p>
+          <p>The column <b>Target 10 m higher</b> gives the effect on range (negative: the round falls short).
+            Compensate by firing at a corrected range:
+            <b>corrected range = map range − (VI ÷ 10) × table value</b>, then look up the elevation for the
+            corrected range.</p>
+          <p>Example: range 2400 m, VI +80 m, table value −4.0 → 2400 − 8 × (−4.0) = 2432 m.
+            A target below the mortar (negative VI) gives a shorter corrected range.</p>
+          <p>Near a charge's maximum range with a large VI the correction loses accuracy; choose a higher charge.
+            Rounds that clip a hill between mortar and target burst on the hill.</p>
         </details>
       </section>
     </aside>

@@ -33,9 +33,10 @@
     const inBounds = (e, n, m) => e > m && n > m && e < terrain.size - m && n < terrain.size - m;
 
     // 1–2. Mortar position and azimuth of fire. The position must be dry, open (no overhead
-    // cover) and fairly level. Candidates are scored on dry land in the sector and on how much
-    // of it lies near the mortar's own altitude (so early missions need no height correction).
-    // Azimuths of fire are multiples of 100 mils.
+    // cover) and fairly level. Candidates are scored on dry land in the sector and on a mix of
+    // ground near the mortar's own altitude (missions without height correction) and ground
+    // clearly above or below it (height-difference missions). Azimuths of fire are multiples
+    // of 100 mils.
     let gun = null;
     let aof = 0;
     let bestScore = -Infinity;
@@ -49,14 +50,19 @@
       for (let k = 0; k < 16; k++) {
         const az = G.normMils(startAz + k * 400);
         let score = rand() * 2;
+        let level = 0;
+        let relief = 0;
         for (let d = 1000; d <= 5000; d += 500) {
-          for (const off of [-600, 0, 600]) {
+          for (const off of [-600, -300, 0, 300, 600]) {
             const [e, n] = G.polar(ge, gn, az + off, d);
             if (!inBounds(e, n, 500) || !dry(e, n)) continue;
             score++;
-            if (Math.abs(h(e, n) - gAlt) <= 25) score += 2;
+            const vi = Math.abs(h(e, n) - gAlt);
+            if (vi <= 20) level++;
+            else if (vi >= 40 && vi <= 150) relief++;
           }
         }
+        score += 2.5 * Math.min(level, 15) + 2.5 * Math.min(relief, 12);
         if (score > bestScore) {
           bestScore = score;
           gun = { e: Math.round(ge), n: Math.round(gn) };
