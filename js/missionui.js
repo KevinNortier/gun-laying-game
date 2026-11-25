@@ -25,7 +25,7 @@
       $('btn-mission').addEventListener('click', () => {
         const mm = this.manager;
         if (!mm) return;
-        if (mm.state === 'idle' || mm.state === 'complete') mm.start(typeSel.value);
+        if (mm.state === 'idle' || mm.state === 'complete') mm.start(typeSel.value, { met: $('opt-met').checked });
         else if (confirm('End this mission without effect on target?')) mm.end();
       });
       $('btn-skip').addEventListener('click', () => this.manager && this.manager.skip());
@@ -75,6 +75,8 @@
       const busy = mm.state === 'receiving' || mm.state === 'ready' || mm.state === 'firing';
       btn.textContent = busy ? 'End mission' : 'New mission';
       $('mission-type').disabled = busy;
+      $('opt-met').disabled = busy;
+      this.renderMet();
       if (!m) status.textContent = 'No mission. Press New mission to receive a call for fire.';
       else if (mm.state === 'receiving') status.textContent = `Receiving call for fire…`;
       else if (mm.state === 'ready') {
@@ -92,6 +94,31 @@
       // The score card can shrink the radio panel; keep the latest message in view.
       const log = $('radio-log');
       log.scrollTop = log.scrollHeight;
+    }
+
+    renderMet() {
+      const mm = this.manager;
+      const wx = mm.mission && mm.mission.weather;
+      $('met-panel').hidden = !wx;
+      if (!wx) return;
+      const met = wx.met;
+      const signed = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v);
+      const rows = [
+        ['Wind from', `${GL.Geo.fmtMils(met.windFrom)} mils (grid)`],
+        ['Wind speed', `${met.windSpeed} m/s`],
+        ['Air temperature', `${signed(met.airTemp)} °C`],
+        ['Air density', `${met.density.toFixed(1)} %`],
+        ['Propellant temp', `${signed(met.propTemp)} °C`],
+      ];
+      const dl = $('met-body');
+      dl.replaceChildren();
+      for (const [k, v] of rows) {
+        const dt = document.createElement('dt');
+        dt.textContent = k;
+        const dd = document.createElement('dd');
+        dd.textContent = v;
+        dl.append(dt, dd);
+      }
     }
 
     renderClock() {
@@ -151,6 +178,12 @@
         ['Economy', String(s.economy)],
         ['Speed', String(s.speed)],
       ];
+      if (s.met) {
+        const r = Math.round(s.met.rangeCorrection);
+        const d = Math.round(s.met.deflCorrection);
+        rows.push(['Met correction (range)', `${r >= 0 ? 'add' : 'drop'} ${Math.abs(r)} m`]);
+        rows.push(['Met correction (defl)', `${d >= 0 ? 'left' : 'right'} ${Math.abs(d)} mils (${d >= 0 ? '+' : '−'}${Math.abs(d)})`]);
+      }
       if (s.penalty) rows.push(['Safety violations', `−${s.penalty}`]);
       rows.push(['Score', String(s.total)]);
       const dl = $('score-body');

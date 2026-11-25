@@ -99,12 +99,22 @@
         <p id="mission-status" class="small"></p>
         <div class="row">
           <select id="mission-type" aria-label="Mission type"></select>
+          <label class="toggle small met-toggle" title="Rounds fly in non-standard weather; a met message reports it">
+            <input type="checkbox" id="opt-met"> Non-standard weather (met)
+          </label>
           <button id="btn-mission" type="button" class="primary">New mission</button>
           <button id="btn-skip" type="button" hidden>Skip</button>
         </div>
         <div id="score" class="score" hidden>
           <dl id="score-body"></dl>
         </div>
+      </section>
+
+      <section id="met-panel" class="panel" hidden>
+        <h2>Met message</h2>
+        <dl id="met-body" class="met"></dl>
+        <p class="small muted">Wind is the ballistic wind, direction it blows <b>from</b> (grid). Density is at the
+          mortar position. Propellant temperature is measured at the mortar.</p>
       </section>
 
       <section class="panel radio">
@@ -165,6 +175,19 @@
           <p><b>Shift:</b> "shift AB0001, direction, left/right, add/drop, up/down". Centre the target grid on the
             known point, oriented to the grid direction, and count off the shift.</p>
           <p>Later corrections use the same (magnetic) direction as their axis.</p>
+        </details>
+        <details class="small">
+          <summary>Met corrections</summary>
+          <p>Standard conditions: no wind, air 15 °C, density 100 %, propellant 21 °C. With a met message, work out
+            the effect of each deviation with the firing table (at the target range, for your charge):</p>
+          <p><b>1. Wind components.</b> With θ = wind direction − target azimuth:
+            head wind = speed × cos θ (negative = tail wind), cross wind from the left = speed × sin(−θ).</p>
+          <p><b>2. Range.</b> Effect = head (or tail) wind × table value + (air temp − 15) × table value +
+            (density − 100) × table value + (propellant temp − 21) × table value. Corrected range = map range −
+            effect (− the VI effect). Look up the elevation for the corrected range.</p>
+          <p><b>3. Deflection.</b> Cross wind from the left × table value = drift right in mils. Correct the
+            other way: drift right → <b>add</b> that many mils to the deflection (left add).</p>
+          <p>The met message is rounded and a little stale, and the wind gusts; expect some residual error.</p>
         </details>
       </section>
     </aside>

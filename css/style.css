@@ -164,6 +164,36 @@ main {
   flex-wrap: wrap;
 }
 
+.met-toggle {
+  flex: 1 1 100%;
+  margin: 2px 0 4px;
+}
+
+.met {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.met dt {
+  color: var(--muted);
+}
+
+.met dd {
+  margin: 0;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+#met-panel[hidden] {
+  display: none;
+}
+
+#met-panel p {
+  margin: 0;
+}
+
 .row select {
   flex: 1 1 100%;
   min-width: 0;

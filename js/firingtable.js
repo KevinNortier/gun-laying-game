@@ -79,6 +79,18 @@
     return tables[charge];
   }
 
+  // Linear interpolation of a column at range R (clamped to the table).
+  function interp(table, R, key) {
+    const rows = table.rows;
+    if (R <= rows[0].range) return rows[0][key];
+    if (R >= rows[rows.length - 1].range) return rows[rows.length - 1][key];
+    let i = 1;
+    while (rows[i].range < R) i++;
+    const a = rows[i - 1];
+    const b = rows[i];
+    return a[key] + ((R - a.range) / (b.range - a.range)) * (b[key] - a[key]);
+  }
+
   const STANDARD_CONDITIONS = [
     'Air temperature 15 °C and density 1.225 kg/m³ (100 %) at the mortar position',
     'Propellant temperature 21 °C',
@@ -86,5 +98,5 @@
     'Target at the same altitude as the mortar',
   ];
 
-  GL.FiringTables = { getTable, RANGE_STEP, STANDARD_CONDITIONS };
+  GL.FiringTables = { getTable, interp, RANGE_STEP, STANDARD_CONDITIONS };
 })((window.GL = window.GL || {}));

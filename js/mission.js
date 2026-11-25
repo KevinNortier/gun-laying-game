@@ -89,6 +89,20 @@
   const SHIFT_BASE_SIGMA = 15; // metres
   const UP_DOWN_MIN = 35; // vertical shifts smaller than this are not reported
 
+  // Round-to-round wind variation in non-standard weather.
+  const WIND_GUST_SIGMA = 0.12; // fraction of speed
+  const WIND_DIR_SIGMA = 60; // mils
+
+  // Wind blowing from `from` (mils) at `speed` m/s, split for a round fired on azimuth `az`:
+  // windRange + = tail wind, windCross + = blowing from left to right.
+  function windComponents(from, speed, az) {
+    const k = GL.Geo.RAD_PER_MIL;
+    return {
+      windRange: -speed * Math.cos((from - az) * k),
+      windCross: speed * Math.sin((az - from) * k),
+    };
+  }
+
   function gaussian(rand) {
     let u = 0;
     while (u === 0) u = rand();
@@ -231,7 +245,32 @@
 
     // ---- mission flow ---------------------------------------------------------
 
-    start(typeKey = 'level') {
+    // Actual weather for a mission, and the met message reporting it (rounded and slightly off,
+    // as a real met message is: measured elsewhere and some time ago).
+    _makeWeather() {
+      const r = this.rand;
+      const g = G();
+      const airTemp = -5 + r() * 35; // °C
+      const actual = {
+        windFrom: r() * 6400, // grid mils, direction the wind blows from
+        windSpeed: 1 + r() * 8, // m/s
+        airTemp,
+        // Warm air is thinner; plus pressure variation.
+        density: 100 - (airTemp - 15) * 0.35 + gaussian(r) * 1.5, // % of standard
+        // Ammunition warms in the sun or cools overnight.
+        propTemp: airTemp + (r() * 2 - 1) * 4 + (r() < 0.5 ? r() * 10 : 0),
+      };
+      const met = {
+        windFrom: g.normMils(roundTo(actual.windFrom + gaussian(r) * 80, 50)),
+        windSpeed: Math.max(0, Math.round(actual.windSpeed + gaussian(r) * 0.8)),
+        airTemp: Math.round(actual.airTemp + gaussian(r) * 0.8),
+        density: Math.round((actual.density + gaussian(r) * 0.4) * 10) / 10,
+        propTemp: Math.round(actual.propTemp + gaussian(r) * 0.5),
+      };
+      return { actual, met };
+    }
+
+    start(typeKey = 'level', opts = {}) {
       if (this.state !== 'idle' && this.state !== 'complete') return;
       const missionType = MISSION_TYPES[typeKey] || MISSION_TYPES.level;
       const g = G();
@@ -347,11 +386,16 @@
         ffeRounds: 0,
         ffeMisses: [],
         firstMiss: null,
+        firstShot: null,
         violations: 0,
         result: null,
+        weather: opts.met ? this._makeWeather() : null,
       };
       this.state = 'receiving';
       if (this.listener.onStart) this.listener.onStart();
+      if (this.mission.weather) {
+        this.radio.push({ t: this.time, from: 'SYS', text: 'Met message received. Conditions are non-standard.' });
+      }
       const desc = capitalize(type.text);
       const t0 = 0.3;
       this._say(this.fo, `${this.fdc}, this is ${this.fo}, ${method}${headerExtra}, over.`, t0);
@@ -416,6 +460,7 @@
       else m.adjustRounds += rounds;
       const volley = [];
       let lastImpact = 0;
+      if (!m.firstShot) m.firstShot = { charge, az, elev };
       for (let i = 0; i < rounds; i++) {
         const shot = this._flyRound(charge, az, elev);
         const fireAt = this.time + 0.5 + i * ROUND_INTERVAL;
@@ -457,6 +502,18 @@
       const gunAlt = terrain.height(gun.e, gun.n) + MUZZLE_HEIGHT;
       const azR = g.normMils(az + gaussian(this.rand) * AZ_SIGMA);
       const cond = { mvDev: gaussian(this.rand) * MV_SIGMA, targetHeight: -800 };
+      const wx = this.mission && this.mission.weather;
+      if (wx) {
+        // Actual conditions, with the wind varying a little from round to round.
+        const a = wx.actual;
+        const speed = Math.max(0, a.windSpeed * (1 + gaussian(this.rand) * WIND_GUST_SIGMA));
+        const from = a.windFrom + gaussian(this.rand) * WIND_DIR_SIGMA;
+        Object.assign(cond, windComponents(from, speed, azR), {
+          airTempDev: a.airTemp - 15,
+          densityDev: a.density - 100,
+          propTempDev: a.propTemp - 21,
+        });
+      }
       const res = GL.Ballistics.simulate(scenario.weapon, charge, elev, cond, { trace: true });
       const r = azR * g.RAD_PER_MIL;
       const sin = Math.sin(r);
@@ -606,6 +663,29 @@
       return { rangeCorr: spot === 'over' ? -step : step, callFFE: step <= 50 };
     }
 
+    // For the debrief: the correction the met message called for at the true target, worked out
+    // the way the FDC does it, with the firing table of the first charge fired.
+    _metCorrection() {
+      const m = this.mission;
+      if (!m.weather || !m.firstShot) return null;
+      const g = G();
+      const { gun, weapon } = this.scenario;
+      const t = m.target;
+      const az = g.azimuthMils(gun.e, gun.n, t.e, t.n);
+      const R = g.distance(gun.e, gun.n, t.e, t.n);
+      const table = GL.FiringTables.getTable(weapon, m.firstShot.charge);
+      const f = (key) => GL.FiringTables.interp(table, R, key);
+      const met = m.weather.met;
+      const w = windComponents(met.windFrom, met.windSpeed, az);
+      const windEffect = w.windRange >= 0 ? w.windRange * f('tailWind') : -w.windRange * f('headWind');
+      const effect = windEffect +
+        (met.airTemp - 15) * f('airTemp') +
+        (met.density - 100) * f('density') +
+        (met.propTemp - 21) * f('propTemp');
+      const drift = w.windCross * f('crossWind'); // mils to the right
+      return { rangeEffect: effect, rangeCorrection: -effect, drift, deflCorrection: drift };
+    }
+
     _finish() {
       const m = this.mission;
       this.state = 'complete';
@@ -635,6 +715,7 @@
       }
       s.penalty = 200 * m.violations;
       s.total = Math.max(0, s.accuracy + s.economy + s.speed - s.penalty);
+      s.met = this._metCorrection();
       m.score = s;
       this._changed();
     }
